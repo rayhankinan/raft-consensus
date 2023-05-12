@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ./server ./
 
-CMD [ "python", "./main.py" ]
+CMD [ "python", "-u", "./main.py" ]
 
 EXPOSE 8080

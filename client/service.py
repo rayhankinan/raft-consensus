@@ -13,5 +13,5 @@ class ClientService(rpyc.VoidService):
         pass
 
     @rpyc.exposed
-    def hello_mars(self) -> str:
-        return "Hello Mars!"
+    def hello_mars(self) -> None:
+        print("Hello Mars!")
