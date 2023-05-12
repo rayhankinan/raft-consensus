@@ -13,6 +13,7 @@ services:
       - 8080:8080
     volumes:
       - ./server:/usr/src/app
+      - node-0:/mnt
     networks:
       - app-network
 
@@ -20,3 +21,8 @@ services:
 networks:
   app-network:
     driver: bridge
+
+# Volumes
+volumes:
+  node-0:
+    driver: local
