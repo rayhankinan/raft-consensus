@@ -4,13 +4,15 @@ version: "3.8"
 services:
   node-1:
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
-    container_name: node-1
+    container_name: node-0
     restart: unless-stopped
-    hostname: node-1-server
+    hostname: node-0-server
+    ports:
+      - 8080:8080
     volumes:
-      - ./server:/app
+      - ./server:/usr/src/app
     networks:
       - app-network
 
