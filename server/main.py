@@ -4,7 +4,8 @@ from config import ServerConfig
 
 
 if __name__ == "__main__":
-    port = int(ServerConfig.config("PORT"))
-    server = ThreadedServer(ServerService, port=port)
+    config = ServerConfig()
+    port = int(config.get("PORT"))
 
+    server = ThreadedServer(ServerService, port=port)
     server.start()
