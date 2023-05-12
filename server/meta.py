@@ -3,8 +3,8 @@ from typing import Any
 
 
 class ThreadSafeSingletonMeta(type):
-    _instances = {}
-    _locks = {}
+    _instances = {}  # Instances made for each class
+    _locks = {}  # Lock for each class
 
     def __call__(cls, *args, **kwargs):
         # Create singleton lock if not exists

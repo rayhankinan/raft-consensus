@@ -5,7 +5,8 @@ from service import ClientService
 
 if __name__ == "__main__":
     conn: rpyc.Connection = rpyc.connect(
-        "localhost", 8080,
+        "localhost",
+        8080,
         service=ClientService
     )
 
