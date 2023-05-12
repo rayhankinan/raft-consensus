@@ -1,11 +1,23 @@
 import pickle
-from meta import ThreadSafeSingletonMeta
+from threading import Lock
 from log import Log
 from config import ServerConfig
 from rwlock import RWLock
 
 
-class Storage(metaclass=ThreadSafeSingletonMeta):  # TODO: Tambahkan read-write lock
+class StorageMeta(type):
+    _instances = {}
+    _lock: Lock = Lock()
+
+    def __call__(cls, *args, **kwargs):
+        with cls._lock:
+            if cls not in cls._instances:
+                instance = super().__call__(*args, **kwargs)
+                cls._instances[cls] = instance
+        return cls._instances[cls]
+
+
+class Storage(metaclass=StorageMeta):
     _base_dir: str = "/mnt/data"
     _config: ServerConfig = ServerConfig()
     _rw_locks: dict[str, RWLock] = {

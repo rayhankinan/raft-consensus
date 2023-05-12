@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from threading import Lock
 
 
-class RWLock:
+class RWLock(object):
     _w_lock = Lock()
     _num_r_lock = Lock()
     _num_r = 0

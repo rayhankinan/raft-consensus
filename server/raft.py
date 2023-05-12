@@ -1,13 +1,25 @@
 import time
+from threading import Lock
 from sched import scheduler
 from queue import Queue
 from log import Log
-from meta import ThreadSafeSingletonMeta
 from state import State
 from storage import Storage
 
 
-class RaftNode(metaclass=ThreadSafeSingletonMeta):  # TODO: Implementasikan kelas RaftNode
+class RaftNodeMeta(type):
+    _instances = {}
+    _lock: Lock = Lock()
+
+    def __call__(cls, *args, **kwargs):
+        with cls._lock:
+            if cls not in cls._instances:
+                instance = super().__call__(*args, **kwargs)
+                cls._instances[cls] = instance
+        return cls._instances[cls]
+
+
+class RaftNode(metaclass=RaftNodeMeta):  # TODO: Implementasikan kelas RaftNode
     # Utility
     _scheduler: scheduler = scheduler(time.time, time.sleep)
     _storage: Storage = Storage()
