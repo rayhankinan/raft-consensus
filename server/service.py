@@ -16,7 +16,7 @@ class ServerService(rpyc.Service):
 
     @rpyc.exposed
     def hello_world(self) -> None:
-        raft_node = RaftNode()
+        raft_node = RaftNode()  # Panggil ngasal
 
         print("Hello World!")
 

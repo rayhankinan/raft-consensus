@@ -8,30 +8,17 @@ from storage import Storage
 
 
 class RaftNode(metaclass=ThreadSafeSingletonMeta):  # TODO: Implementasikan kelas RaftNode
+    # Utility
+    _scheduler: scheduler = scheduler(time.time, time.sleep)
+    _storage: Storage = Storage()
+
     # Persistent state on all servers
-    _logs: list[Log]
-    _current_term: int
-    _voted_for: str
+    _logs: list[Log] = _storage.get_logs()
+    _current_term: int = _storage.get_current_term()
+    _voted_for: str = _storage.get_voted_for()
 
     # Volatile state on all servers
-    _state_machine: Queue[str]
-    _current_state: State
-    _commit_index: int
-    _last_applied: int
-
-    # Utility
-    _scheduler: scheduler
-
-    def __init__(self) -> None:
-        storage = Storage()
-
-        self._logs = storage.get_logs()
-        self._current_term = storage.get_current_term()
-        self._voted_for = storage.get_voted_for()
-
-        self._state_machine = Queue()
-        self._current_state = State.FOLLOWER
-        self._commit_index = 0
-        self._last_applied = 0
-
-        self._scheduler = scheduler(time.time, time.sleep)
+    _state_machine: Queue[str] = Queue()
+    _current_state: State = State.FOLLOWER
+    _commit_index: int = 0
+    _last_applied: int = 0

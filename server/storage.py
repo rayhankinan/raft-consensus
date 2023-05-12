@@ -6,6 +6,7 @@ from config import ServerConfig
 
 class Storage(metaclass=ThreadSafeSingletonMeta):
     _base_dir: str = "/mnt/data"
+    _config: ServerConfig = ServerConfig()
 
     def get_logs(self) -> list[Log]:
         try:
@@ -34,7 +35,7 @@ class Storage(metaclass=ThreadSafeSingletonMeta):
             with open(f"{self._base_dir}/voted_for", "rb") as f:
                 return pickle.load(f)
         except FileNotFoundError:
-            return ServerConfig().get("SERVER_HOSTNAME")
+            return self._config.get("SERVER_HOSTNAME")
 
     def save_voted_for(self, voted_for: str) -> None:
         with open(f"{self._base_dir}/voted_for", "wb") as f:
