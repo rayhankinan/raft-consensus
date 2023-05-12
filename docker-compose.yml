@@ -8,9 +8,12 @@ services:
       dockerfile: Dockerfile
     container_name: node-0
     restart: unless-stopped
-    hostname: node-0-server
+    hostname: ${SERVER_HOSTNAME_0}
     ports:
-      - 8080:8080
+      - 8080:${SERVER_PORT_0}
+    environment:
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME_0}
+      - SERVER_PORT=${SERVER_PORT_0}
     volumes:
       - ./server:/usr/src/app
       - node-0:/mnt

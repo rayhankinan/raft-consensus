@@ -4,8 +4,8 @@ from meta import ThreadSafeSingletonMeta
 
 class ServerConfig(metaclass=ThreadSafeSingletonMeta):
     __conf = {
-        "HOSTNAME": os.getenv("SERVER_HOSTNAME", "localhost"),
-        "PORT": os.getenv("SERVER_PORT", "8080")
+        "SERVER_HOSTNAME": os.getenv("SERVER_HOSTNAME", "localhost"),
+        "SERVER_PORT": os.getenv("SERVER_PORT", "8080")
     }
     __setters = []
 
