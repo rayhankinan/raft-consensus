@@ -123,16 +123,17 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         )
 
         self._node.add_log(new_log)
-        # TODO: Broadcast to all nodes and wait for majority
+        # TODO: Broadcast add log to all nodes and wait for majority
 
-        self._node.commit_log()
+        self._node.commit_log()  # Write Ahead Logging: Commit to disk before applying
         self._node.apply_log()
-        # TODO: Broadcast to all nodes and wait for majority
+        # TODO: Broadcast commit and apply log to all nodes and wait for majority
 
     @rpyc.exposed
     def get_current_address(self) -> bytes:
         return serialize(self._node.get_current_address())
 
+    # Test untuk client
     @rpyc.exposed
-    def print_logs(self) -> None:  # Test untuk client
+    def print_logs(self) -> None:
         print(self._node._logs)
