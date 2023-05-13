@@ -4,7 +4,7 @@ import time
 from threading import Lock
 from sched import scheduler
 from queue import Queue
-from . import Log, State, Address, Storage, ServerConfig, dynamically_call_procedure
+from . import Log, State, Address, Storage, ServerConfig, dynamically_call_procedure, serialize, deserialize
 
 
 class RaftNodeMeta(type):
@@ -38,7 +38,7 @@ class RaftNode(metaclass=RaftNodeMeta):
     _current_known_address: list[Address] = []
     _current_leader_address: Address = _config.get("LEADER_ADDRESS")
 
-    def __init__(self) -> None:
+    def initialize(self) -> None:
         if self._current_leader_address == self._config.get("SERVER_ADDRESS"):
             self._current_state = State.LEADER
             self._current_known_address.append(
@@ -47,6 +47,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
         else:
             hostname, port = self._current_leader_address
+            # TODO: BUG DISINI
             conn: rpyc.Connection = rpyc.connect(
                 hostname,
                 port,
@@ -56,7 +57,7 @@ class RaftNode(metaclass=RaftNodeMeta):
             asyncio.run(dynamically_call_procedure(conn, "apply_membership"))
 
     def get_current_address(self) -> Address:
-        return self._config.get("ADDRESS")
+        return self._config.get("SERVER_ADDRESS")
 
     def get_current_term(self) -> int:
         return self._current_term
@@ -105,11 +106,16 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         conn.close()
 
     @rpyc.exposed
-    def apply_membership(self):
-        follower_address: Address = asyncio.run(dynamically_call_procedure(
-            self._conn,
-            "get_current_address",
-        ))
+    def apply_membership(self) -> None:
+        follower_address: Address = deserialize(
+            asyncio.run(
+                dynamically_call_procedure(
+                    self._conn,
+                    "get_current_address",
+                )
+            )
+        )
+
         new_log = Log(
             self._node.get_current_term(),
             "ADD_NODE",
@@ -120,10 +126,13 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         # TODO: Broadcast to all nodes and wait for majority
 
         self._node.commit_log()
+        self._node.apply_log()
         # TODO: Broadcast to all nodes and wait for majority
 
-        self._node.apply_log()
+    @rpyc.exposed
+    def get_current_address(self) -> bytes:
+        return serialize(self._node.get_current_address())
 
     @rpyc.exposed
-    def print_membership(self) -> None:  # Test aja
-        print(RaftNode()._current_known_address)
+    def print_logs(self) -> None:  # Test untuk client
+        print(self._node._logs)

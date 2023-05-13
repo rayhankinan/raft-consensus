@@ -10,6 +10,6 @@ if __name__ == "__main__":
         service=ClientService,
     )
 
-    asyncio.run(dynamically_call_procedure(conn, "print_membership"))
+    asyncio.run(dynamically_call_procedure(conn, "print_logs"))
 
     conn.close()

@@ -13,6 +13,7 @@ if __name__ == "__main__":
 
     # Initialize Raft node
     raft_node = RaftNode()
+    raft_node.initialize()
 
     # Start server
     server = ThreadedServer(ServerService, port=port)
