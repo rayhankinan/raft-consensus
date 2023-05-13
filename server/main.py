@@ -1,8 +1,6 @@
 import asyncio
 from rpyc.utils.server import ThreadedServer
-from service import RaftNode, ServerService
-from config import ServerConfig
-from address import Address
+from program import RaftNode, ServerService, ServerConfig, Address
 
 
 if __name__ == "__main__":

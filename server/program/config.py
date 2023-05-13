@@ -1,6 +1,6 @@
 import os
 from threading import Lock
-from address import Address
+from . import Address
 
 
 class ServerConfigMeta(type):

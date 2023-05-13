@@ -3,12 +3,7 @@ import time
 from threading import Lock
 from sched import scheduler
 from queue import Queue
-from log import Log
-from state import State
-from address import Address
-from storage import Storage
-from config import ServerConfig
-from utils import dynamically_call_procedure
+from . import Log, State, Address, Storage, ServerConfig, dynamically_call_procedure
 
 
 class RaftNodeMeta(type):

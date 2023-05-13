@@ -1,9 +1,6 @@
 import pickle
 from threading import Lock
-from log import Log
-from config import ServerConfig
-from rwlock import RWLock
-from address import Address
+from . import Log, ServerConfig, RWLock, Address
 
 
 class StorageMeta(type):
