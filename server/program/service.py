@@ -1,4 +1,5 @@
 import rpyc
+import asyncio
 import time
 from threading import Lock
 from sched import scheduler
@@ -37,8 +38,7 @@ class RaftNode(metaclass=RaftNodeMeta):
     _current_known_address: list[Address] = []
     _current_leader_address: Address = _config.get("LEADER_ADDRESS")
 
-    # Asynchronous Methods
-    async def initialize(self) -> None:
+    def __init__(self) -> None:
         if self._current_leader_address == self._config.get("SERVER_ADDRESS"):
             self._current_state = State.LEADER
             self._current_known_address.append(
@@ -53,9 +53,8 @@ class RaftNode(metaclass=RaftNodeMeta):
                 service=ServerService,
             )
 
-            # await dynamically_call_procedure(conn, "apply_membership")
+            asyncio.run(dynamically_call_procedure(conn, "apply_membership"))
 
-    # Synchronous Methods
     def get_current_address(self) -> Address:
         return self._config.get("ADDRESS")
 
@@ -95,35 +94,35 @@ class RaftNode(metaclass=RaftNodeMeta):
 
 @rpyc.service
 class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
+    _node: RaftNode
     _conn: rpyc.Connection
 
     def on_connect(self, conn: rpyc.Connection) -> None:
+        self._node = RaftNode()
         self._conn = conn
 
     def on_disconnect(self, conn: rpyc.Connection) -> None:
         conn.close()
 
     @rpyc.exposed
-    async def apply_membership(self):
-        follower_address: Address = await dynamically_call_procedure(
+    def apply_membership(self):
+        follower_address: Address = asyncio.run(dynamically_call_procedure(
             self._conn,
             "get_current_address",
-        )
-
-        current_node = RaftNode()
+        ))
         new_log = Log(
-            current_node.get_current_term(),
+            self._node.get_current_term(),
             "ADD_NODE",
             follower_address,
         )
 
-        current_node.add_log(new_log)
+        self._node.add_log(new_log)
         # TODO: Broadcast to all nodes and wait for majority
 
-        current_node.commit_log()
+        self._node.commit_log()
         # TODO: Broadcast to all nodes and wait for majority
 
-        current_node.apply_log()
+        self._node.apply_log()
 
     @rpyc.exposed
     def print_membership(self) -> None:  # Test aja

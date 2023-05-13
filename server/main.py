@@ -14,9 +14,6 @@ if __name__ == "__main__":
     # Initialize Raft node
     raft_node = RaftNode()
 
-    # Run all async methods
-    asyncio.run(raft_node.initialize())
-
     # Start server
     server = ThreadedServer(ServerService, port=port)
     server.start()
