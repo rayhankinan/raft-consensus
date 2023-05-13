@@ -1,10 +1,10 @@
 import rpyc
 from typing import Callable
-from raft import RaftNode
+from utils import dynamically_call_procedure
 
 
 @rpyc.service
-class ServerService(rpyc.Service):
+class ServerService(rpyc.Service):  # Stateful: Tidak menggunakan singleton
     _conn: rpyc.Connection
 
     def on_connect(self, conn: rpyc.Connection):
@@ -16,10 +16,6 @@ class ServerService(rpyc.Service):
 
     @rpyc.exposed
     def hello_world(self) -> None:
-        raft_node = RaftNode()  # Panggil ngasal
-
         print("Hello World!")
 
-        if hasattr(self._conn.root, "hello_mars") and callable(getattr(self._conn.root, "hello_mars")):
-            func: Callable[[], None] = getattr(self._conn.root, "hello_mars")
-            func()
+        dynamically_call_procedure(self._conn, "hello_mars")

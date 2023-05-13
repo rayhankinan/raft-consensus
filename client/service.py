@@ -2,7 +2,7 @@ import rpyc
 
 
 @rpyc.service
-class ClientService(rpyc.VoidService):
+class ClientService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     _conn: rpyc.Connection
 
     def on_connect(self, conn: rpyc.Connection):

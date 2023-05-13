@@ -3,6 +3,7 @@ from threading import Lock
 from log import Log
 from config import ServerConfig
 from rwlock import RWLock
+from address import Address
 
 
 class StorageMeta(type):
@@ -48,12 +49,12 @@ class Storage(metaclass=StorageMeta):
         with self._rw_locks["current_term"].w_locked(), open(f"{self._base_dir}/current_term", "wb") as f:
             pickle.dump(current_term, f)
 
-    def get_voted_for(self) -> str:
+    def get_voted_for(self) -> Address:
         try:
             with self._rw_locks["voted_for"].r_locked(), open(f"{self._base_dir}/voted_for", "rb") as f:
                 return pickle.load(f)
         except FileNotFoundError:
-            return self._config.get("SERVER_HOSTNAME")
+            return Address(self._config.get("SERVER_HOSTNAME"), int(self._config.get("SERVER_PORT")))
 
     def save_voted_for(self, voted_for: str) -> None:
         with self._rw_locks["voted_for"].w_locked(), open(f"{self._base_dir}/voted_for", "wb") as f:

@@ -4,6 +4,7 @@ from sched import scheduler
 from queue import Queue
 from log import Log
 from state import State
+from address import Address
 from storage import Storage
 
 
@@ -27,7 +28,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # TODO: Implementasikan kelas RaftNode
     # Persistent state on all servers
     _logs: list[Log] = _storage.get_logs()
     _current_term: int = _storage.get_current_term()
-    _voted_for: str = _storage.get_voted_for()
+    _voted_for: Address = _storage.get_voted_for()
 
     # Volatile state on all servers
     _state_machine: Queue[str] = Queue()

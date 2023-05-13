@@ -1,6 +1,6 @@
 import rpyc
-from typing import Callable
 from service import ClientService
+from utils import dynamically_call_procedure
 
 
 if __name__ == "__main__":
@@ -10,6 +10,4 @@ if __name__ == "__main__":
         service=ClientService
     )
 
-    if hasattr(conn.root, "hello_world") and callable(getattr(conn.root, "hello_world")):
-        func: Callable[[], None] = getattr(conn.root, "hello_world")
-        func()
+    dynamically_call_procedure(conn, "hello_world")
