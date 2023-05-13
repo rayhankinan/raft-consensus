@@ -20,6 +20,96 @@ services:
     networks:
       - app-network
 
+  node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: node-1
+    restart: unless-stopped
+    hostname: ${SERVER_HOSTNAME_1}
+    ports:
+      - 8081:${SERVER_PORT_1}
+    environment:
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME_1}
+      - SERVER_PORT=${SERVER_PORT_1}
+    volumes:
+      - ./server:/usr/src/app
+      - node-1:/mnt
+    networks:
+      - app-network
+
+  node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: node-2
+    restart: unless-stopped
+    hostname: ${SERVER_HOSTNAME_2}
+    ports:
+      - 8082:${SERVER_PORT_2}
+    environment:
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME_2}
+      - SERVER_PORT=${SERVER_PORT_2}
+    volumes:
+      - ./server:/usr/src/app
+      - node-2:/mnt
+    networks:
+      - app-network
+
+  node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: node-3
+    restart: unless-stopped
+    hostname: ${SERVER_HOSTNAME_3}
+    ports:
+      - 8083:${SERVER_PORT_3}
+    environment:
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME_3}
+      - SERVER_PORT=${SERVER_PORT_3}
+    volumes:
+      - ./server:/usr/src/app
+      - node-3:/mnt
+    networks:
+      - app-network
+
+  node-4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: node-4
+    restart: unless-stopped
+    hostname: ${SERVER_HOSTNAME_4}
+    ports:
+      - 8084:${SERVER_PORT_4}
+    environment:
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME_4}
+      - SERVER_PORT=${SERVER_PORT_4}
+    volumes:
+      - ./server:/usr/src/app
+      - node-4:/mnt
+    networks:
+      - app-network
+
+  node-5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: node-5
+    restart: unless-stopped
+    hostname: ${SERVER_HOSTNAME_5}
+    ports:
+      - 8085:${SERVER_PORT_5}
+    environment:
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME_5}
+      - SERVER_PORT=${SERVER_PORT_5}
+    volumes:
+      - ./server:/usr/src/app
+      - node-5:/mnt
+    networks:
+      - app-network
+
 # Networks
 networks:
   app-network:
@@ -28,4 +118,14 @@ networks:
 # Volumes
 volumes:
   node-0:
+    driver: local
+  node-1:
+    driver: local
+  node-2:
+    driver: local
+  node-3:
+    driver: local
+  node-4:
+    driver: local
+  node-5:
     driver: local

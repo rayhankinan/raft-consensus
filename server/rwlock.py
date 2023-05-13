@@ -32,8 +32,9 @@ class RWLock(object):
     # Get read lock
     @contextmanager
     def r_locked(self):
+        self.__r_acquire()
+
         try:
-            self.__r_acquire()
             yield
         finally:
             self.__r_release()
@@ -49,8 +50,9 @@ class RWLock(object):
     # Get write lock
     @contextmanager
     def w_locked(self):
+        self.__w_acquire()
+
         try:
-            self.__w_acquire()
             yield
         finally:
             self.__w_release()
