@@ -1,7 +1,7 @@
-from typing import Literal, Tuple, NamedTuple
+from typing import Literal, Tuple, NamedTuple, Any
 
 
 class Log(NamedTuple):
     term: int
-    command: Literal["ENQUEUE", "DEQUEUE"]
-    args: Tuple[str, ...]
+    command: Literal["ENQUEUE", "DEQUEUE", "ADD_NODE", "REMOVE_NODE"]
+    args: Tuple[Any, ...]

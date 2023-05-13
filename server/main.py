@@ -1,7 +1,7 @@
+import asyncio
 from rpyc.utils.server import ThreadedServer
-from service import ServerService
+from service import RaftNode, ServerService
 from config import ServerConfig
-from raft import RaftNode
 from address import Address
 
 
@@ -13,8 +13,12 @@ if __name__ == "__main__":
 
     print(f"Starting server on {hostname}:{port}")
 
-    # Start Raft node
+    # Initialize Raft node
     raft_node = RaftNode()
 
+    # Run all async methods
+    asyncio.run(raft_node.initialize())
+
+    # Start server
     server = ThreadedServer(ServerService, port=port)
     server.start()

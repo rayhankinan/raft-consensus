@@ -1,14 +1,15 @@
 import rpyc
-from typing import Callable
+import asyncio
+from typing import Callable, Any
 
 
-def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *args, **kwargs) -> object:
+async def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *args, **kwargs) -> Any:
     if not hasattr(conn.root, func_name):
         raise RuntimeError(f"Function {func_name} not found in server")
 
     if not callable(getattr(conn.root, func_name)):
         raise RuntimeError(f"Function {func_name} is not callable")
 
-    func: Callable[..., object] = getattr(conn.root, func_name)
+    func: Callable[..., Any] = getattr(conn.root, func_name)
 
-    return func(*args, **kwargs)
+    return await asyncio.to_thread(func, *args, **kwargs)

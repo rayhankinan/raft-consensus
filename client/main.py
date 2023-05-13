@@ -1,4 +1,5 @@
 import rpyc
+import asyncio
 from service import ClientService
 from utils import dynamically_call_procedure
 
@@ -10,6 +11,6 @@ if __name__ == "__main__":
         service=ClientService
     )
 
-    dynamically_call_procedure(conn, "hello_world")
+    asyncio.run(dynamically_call_procedure(conn, "print_membership"))
 
     conn.close()

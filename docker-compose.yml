@@ -1,6 +1,6 @@
 version: "3.8"
 
-# RAFT Cluster
+# Raft Cluster
 services:
   node-0:
     build:
@@ -41,6 +41,8 @@ services:
       - node-1:/mnt
     networks:
       - app-network
+    depends_on:
+      - node-0
 
   node-2:
     build:
@@ -61,6 +63,8 @@ services:
       - node-2:/mnt
     networks:
       - app-network
+    depends_on:
+      - node-0
 
   node-3:
     build:
@@ -81,6 +85,8 @@ services:
       - node-3:/mnt
     networks:
       - app-network
+    depends_on:
+      - node-0
 
   node-4:
     build:
@@ -101,6 +107,8 @@ services:
       - node-4:/mnt
     networks:
       - app-network
+    depends_on:
+      - node-0
 
   node-5:
     build:
@@ -121,6 +129,8 @@ services:
       - node-5:/mnt
     networks:
       - app-network
+    depends_on:
+      - node-0
 
 # Networks
 networks:
