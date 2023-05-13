@@ -14,6 +14,8 @@ services:
     environment:
       - SERVER_HOSTNAME=${SERVER_HOSTNAME_0}
       - SERVER_PORT=${SERVER_PORT_0}
+      - LEADER_HOSTNAME=${LEADER_HOSTNAME}
+      - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
       - node-0:/mnt
@@ -32,6 +34,8 @@ services:
     environment:
       - SERVER_HOSTNAME=${SERVER_HOSTNAME_1}
       - SERVER_PORT=${SERVER_PORT_1}
+      - LEADER_HOSTNAME=${LEADER_HOSTNAME}
+      - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
       - node-1:/mnt
@@ -50,6 +54,8 @@ services:
     environment:
       - SERVER_HOSTNAME=${SERVER_HOSTNAME_2}
       - SERVER_PORT=${SERVER_PORT_2}
+      - LEADER_HOSTNAME=${LEADER_HOSTNAME}
+      - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
       - node-2:/mnt
@@ -68,6 +74,8 @@ services:
     environment:
       - SERVER_HOSTNAME=${SERVER_HOSTNAME_3}
       - SERVER_PORT=${SERVER_PORT_3}
+      - LEADER_HOSTNAME=${LEADER_HOSTNAME}
+      - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
       - node-3:/mnt
@@ -86,6 +94,8 @@ services:
     environment:
       - SERVER_HOSTNAME=${SERVER_HOSTNAME_4}
       - SERVER_PORT=${SERVER_PORT_4}
+      - LEADER_HOSTNAME=${LEADER_HOSTNAME}
+      - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
       - node-4:/mnt
@@ -104,6 +114,8 @@ services:
     environment:
       - SERVER_HOSTNAME=${SERVER_HOSTNAME_5}
       - SERVER_PORT=${SERVER_PORT_5}
+      - LEADER_HOSTNAME=${LEADER_HOSTNAME}
+      - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
       - node-5:/mnt

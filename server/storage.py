@@ -54,7 +54,7 @@ class Storage(metaclass=StorageMeta):
             with self._rw_locks["voted_for"].r_locked(), open(f"{self._base_dir}/voted_for", "rb") as f:
                 return pickle.load(f)
         except FileNotFoundError:
-            return Address(self._config.get("SERVER_HOSTNAME"), int(self._config.get("SERVER_PORT")))
+            return self._config.get("SERVER_ADDRESS")
 
     def save_voted_for(self, voted_for: str) -> None:
         with self._rw_locks["voted_for"].w_locked(), open(f"{self._base_dir}/voted_for", "wb") as f:

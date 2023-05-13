@@ -8,9 +8,8 @@ class ClientService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def on_connect(self, conn: rpyc.Connection):
         self._conn = conn
 
-    def on_disconnect(self, _: rpyc.Connection):
-        # TODO: Implementasikan connection clean up disini
-        pass
+    def on_disconnect(self, conn: rpyc.Connection):
+        conn.close()
 
     @rpyc.exposed
     def hello_mars(self) -> None:

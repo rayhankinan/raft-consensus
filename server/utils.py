@@ -2,7 +2,7 @@ import rpyc
 from typing import Callable
 
 
-def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *args: object, **kwargs: object) -> object:
+def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *args, **kwargs) -> object:
     if not hasattr(conn.root, func_name):
         raise RuntimeError(f"Function {func_name} not found in server")
 
