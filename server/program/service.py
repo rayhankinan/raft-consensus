@@ -155,8 +155,12 @@ class RaftNode(metaclass=RaftNodeMeta):
                         service=ServerService,
                     )
 
-                    asyncio.run(dynamically_call_procedure(
-                        conn, "apply_membership"))
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "apply_membership",
+                        )
+                    )
             except:
                 self.__current_state = snapshot_current_state
                 self.__current_known_address = snapshot_current_known_address
@@ -184,10 +188,10 @@ class RaftNode(metaclass=RaftNodeMeta):
                 self.__storage.save_logs(self.__logs)
                 self.__commit_index = len(self.__logs) - 1
 
-                # TODO: Bisa dipisah menjadi sync commit
-                last_applied_log = self.__logs[self.__last_applied]
-                self.__apply_log(last_applied_log)
-                self.__last_applied += 1
+                while self.__last_applied < self.__commit_index:
+                    last_applied_log = self.__logs[self.__last_applied]
+                    self.__apply_log(last_applied_log)
+                    self.__last_applied += 1
             except:
                 self.__commit_index = snapshot_copy_index
                 self.__last_applied = snapshot_last_applied
