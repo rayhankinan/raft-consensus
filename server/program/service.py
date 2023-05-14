@@ -50,7 +50,7 @@ class RaftNode(metaclass=RaftNodeMeta):
     __current_known_address: set[Address] = set()
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
-    # Private Method
+    # Private Method (Write)
     def __apply_log(self, log: Log) -> None:
         match log.command:
             case "ENQUEUE":
@@ -117,22 +117,22 @@ class RaftNode(metaclass=RaftNodeMeta):
             case _:
                 raise RuntimeError("Invalid log command")
 
-    # Public Method
+    # Public Method (Read)
     def get_current_term(self) -> int:
         with self.__rw_locks["current_term"].r_locked():
             return self.__current_term
 
-    # Public Method: Test untuk client
+    # Public Method (Read): Test untuk client
     def get_current_known_address(self) -> set[Address]:
         with self.__rw_locks["current_known_address"].r_locked():
             return self.__current_known_address
 
-    # Public Method: Test untuk client
+    # Public Method (Read): Test untuk client
     def get_logs(self) -> list[Log]:
         with self.__rw_locks["logs"].r_locked():
             return self.__logs
 
-    # Public Method
+    # Public Method (Write)
     def initialize(self) -> None:
         with self.__rw_locks["current_state"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
             snapshot_current_state = copy.deepcopy(self.__current_state)
@@ -166,7 +166,7 @@ class RaftNode(metaclass=RaftNodeMeta):
                 self.__current_known_address = snapshot_current_known_address
                 raise RuntimeError("Failed to initialize")
 
-    # Public Method
+    # Public Method (Write)
     def add_log(self, log: Log) -> None:
         with self.__rw_locks["logs"].w_locked():
             snapshot_logs = copy.deepcopy(self.__logs)
@@ -177,7 +177,7 @@ class RaftNode(metaclass=RaftNodeMeta):
                 self.__logs = snapshot_logs
                 raise RuntimeError("Failed to add log")
 
-    # Public Method
+    # Public Method (Write)
     def commit_log(self) -> None:
         with self.__rw_locks["logs"].r_locked(), self.__rw_locks["commit_index"].w_locked(), self.__rw_locks["last_applied"].w_locked():
             snapshot_copy_index = copy.deepcopy(self.__commit_index)
@@ -234,7 +234,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         # TODO: Broadcast add log to all nodes and wait for majority
 
         self.__node.commit_log()
-        # TODO: Broadcast commit and apply log to all nodes and wait for majority
+        # TODO: Broadcast commit log to all nodes and wait for majority
 
     @rpyc.exposed
     def get_current_address(self) -> bytes:
@@ -243,9 +243,9 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Test untuk client
     @rpyc.exposed
     def print_logs(self) -> None:
-        print(self.__node.get_logs())
+        print("Logs:", self.__node.get_logs())
 
     # Test untuk client
     @rpyc.exposed
     def print_known_address(self) -> None:
-        print(self.__node.get_current_known_address())
+        print("Known Address:", self.__node.get_current_known_address())
