@@ -50,24 +50,6 @@ class RaftNode(metaclass=RaftNodeMeta):
     __current_known_address: set[Address] = set()
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
-    # Initialize Method: Tidak perlu di-lock dan di-snapshot karena hanya dipanggil sebelum server dijalankan
-    def initialize(self) -> None:
-        if self.__current_leader_address == self.__config.get("SERVER_ADDRESS"):
-            self.__current_state = State.LEADER
-            self.__current_known_address.add(
-                self.__config.get("SERVER_ADDRESS")
-            )
-
-        else:
-            hostname, port = self.__current_leader_address
-            conn: rpyc.Connection = rpyc.connect(
-                hostname,
-                port,
-                service=ServerService,
-            )
-
-            asyncio.run(dynamically_call_procedure(conn, "apply_membership"))
-
     # Private Method
     def __apply_log(self, log: Log) -> None:
         match log.command:
@@ -149,6 +131,36 @@ class RaftNode(metaclass=RaftNodeMeta):
     def get_logs(self) -> list[Log]:
         with self.__rw_locks["logs"].r_locked():
             return self.__logs
+
+    # Public Method
+    def initialize(self) -> None:
+        with self.__rw_locks["current_state"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+            snapshot_current_state = copy.deepcopy(self.__current_state)
+            snapshot_current_known_address = copy.deepcopy(
+                self.__current_known_address
+            )
+
+            try:
+                if self.__current_leader_address == self.__config.get("SERVER_ADDRESS"):
+                    self.__current_state = State.LEADER
+                    self.__current_known_address.add(
+                        self.__config.get("SERVER_ADDRESS")
+                    )
+
+                else:
+                    hostname, port = self.__current_leader_address
+                    conn: rpyc.Connection = rpyc.connect(
+                        hostname,
+                        port,
+                        service=ServerService,
+                    )
+
+                    asyncio.run(dynamically_call_procedure(
+                        conn, "apply_membership"))
+            except:
+                self.__current_state = snapshot_current_state
+                self.__current_known_address = snapshot_current_known_address
+                raise RuntimeError("Failed to initialize")
 
     # Public Method
     def add_log(self, log: Log) -> None:
