@@ -2,32 +2,37 @@ from contextlib import contextmanager
 from threading import Lock
 
 
-class RWLock(object):
-    _w_lock = Lock()
-    _num_r_lock = Lock()
-    _num_r = 0
+class RWLock:
+    __w_lock: Lock
+    __num_r_lock: Lock
+    __num_r: int
+
+    def __init__(self) -> None:
+        self.__w_lock = Lock()
+        self.__num_r_lock = Lock()
+        self.__num_r = 0
 
     # Acquire the lock for reading
     def __r_acquire(self):
-        self._num_r_lock.acquire()
-        self._num_r += 1
+        self.__num_r_lock.acquire()
+        self.__num_r += 1
 
         # Acquire write lock if first reader
-        if self._num_r == 1:
-            self._w_lock.acquire()
+        if self.__num_r == 1:
+            self.__w_lock.acquire()
 
-        self._num_r_lock.release()
+        self.__num_r_lock.release()
 
     # Release the lock for reading
     def __r_release(self):
-        self._num_r_lock.acquire()
-        self._num_r -= 1
+        self.__num_r_lock.acquire()
+        self.__num_r -= 1
 
         # Release write lock if no more readers
-        if self._num_r == 0:
-            self._w_lock.release()
+        if self.__num_r == 0:
+            self.__w_lock.release()
 
-        self._num_r_lock.release()
+        self.__num_r_lock.release()
 
     # Get read lock
     @contextmanager
@@ -41,11 +46,11 @@ class RWLock(object):
 
     # Acquire the lock for writing
     def __w_acquire(self):
-        self._w_lock.acquire()
+        self.__w_lock.acquire()
 
     # Release the lock for writing
     def __w_release(self):
-        self._w_lock.release()
+        self.__w_lock.release()
 
     # Get write lock
     @contextmanager
