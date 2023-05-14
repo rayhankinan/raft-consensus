@@ -32,6 +32,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Volatile state on all servers
     _state_machine: Queue[str] = Queue()
+    _output_buffer: Queue[str] = Queue()
     _commit_index: int = 0
     _last_applied: int = 0
     _current_state: State = State.FOLLOWER
@@ -47,7 +48,6 @@ class RaftNode(metaclass=RaftNodeMeta):
 
         else:
             hostname, port = self._current_leader_address
-            # TODO: BUG DISINI
             conn: rpyc.Connection = rpyc.connect(
                 hostname,
                 port,
@@ -69,7 +69,7 @@ class RaftNode(metaclass=RaftNodeMeta):
         self._storage.save_logs(self._logs)
         self._commit_index = len(self._logs) - 1
 
-    def apply_log(self) -> None:
+    def apply_log(self) -> None:  # Apply log dijalankan setelah commit dan setiap periode tertentu
         while self._last_applied < self._commit_index:
             self._last_applied += 1
 
@@ -80,7 +80,8 @@ class RaftNode(metaclass=RaftNodeMeta):
                     value = str(raw_value)
                     self._state_machine.put(value)
                 case "DEQUEUE":
-                    self._state_machine.get()
+                    value = self._state_machine.get()
+                    self._output_buffer.put(value)
                 case "ADD_NODE":
                     raw_hostname, raw_port = last_applied_log.args
                     hostname, port = str(raw_hostname), int(raw_port)
@@ -91,6 +92,9 @@ class RaftNode(metaclass=RaftNodeMeta):
                     self._current_known_address.remove(Address(hostname, port))
                 case _:
                     raise RuntimeError("Unknown command")
+
+    def get_output(self) -> str:
+        return self._output_buffer.get()
 
 
 @rpyc.service

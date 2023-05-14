@@ -1,5 +1,7 @@
 import rpyc
 import asyncio
+import codecs
+import pickle
 from typing import Callable, Any
 
 
@@ -13,3 +15,11 @@ async def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *arg
     func: Callable[..., Any] = getattr(conn.root, func_name)
 
     return await asyncio.to_thread(func, *args, **kwargs)
+
+
+def serialize(value: Any) -> bytes:
+    return codecs.encode(pickle.dumps(value), "base64")
+
+
+def deserialize(value: bytes) -> Any:
+    return pickle.loads(codecs.decode(value, "base64"))
