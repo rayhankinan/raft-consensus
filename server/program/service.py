@@ -186,7 +186,7 @@ class RaftNode(metaclass=RaftNodeMeta):
             try:
                 # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                 self.__storage.save_logs(self.__logs)
-                self.__commit_index = len(self.__logs) - 1
+                self.__commit_index = len(self.__logs)
 
                 while self.__last_applied < self.__commit_index:
                     last_applied_log = self.__logs[self.__last_applied]
