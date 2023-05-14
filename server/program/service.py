@@ -168,6 +168,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
                 last_applied_log = self.__logs[self.__last_applied]
                 self.__apply_log(last_applied_log)
+                self.__last_applied += 1
             except:
                 self.__commit_index = snapshot_copy_index
                 self.__last_applied = snapshot_last_applied
@@ -206,8 +207,12 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             follower_address,
         )
 
+        print("Before", len(self.__node.get_logs()))
+
         self.__node.add_log(new_log)
         # TODO: Broadcast add log to all nodes and wait for majority
+
+        print("After", len(self.__node.get_logs()))
 
         self.__node.commit_log()
         # TODO: Broadcast commit and apply log to all nodes and wait for majority
