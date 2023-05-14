@@ -140,6 +140,11 @@ class RaftNode(metaclass=RaftNodeMeta):
         with self.__rw_locks["current_term"].r_locked():
             return self.__current_term
 
+    # Public Method
+    def get_current_known_address(self) -> list[Address]:
+        with self.__rw_locks["current_known_address"].r_locked():
+            return self.__current_known_address
+
     # Public Method: Test untuk client
     def get_logs(self) -> list[Log]:
         with self.__rw_locks["logs"].r_locked():
@@ -207,12 +212,8 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             follower_address,
         )
 
-        print("Before", len(self.__node.get_logs()))
-
         self.__node.add_log(new_log)
         # TODO: Broadcast add log to all nodes and wait for majority
-
-        print("After", len(self.__node.get_logs()))
 
         self.__node.commit_log()
         # TODO: Broadcast commit and apply log to all nodes and wait for majority
@@ -225,3 +226,8 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     @rpyc.exposed
     def print_logs(self) -> None:
         print(self.__node.get_logs())
+
+    # Test untuk client
+    @rpyc.exposed
+    def print_known_address(self) -> None:
+        print(self.__node.get_current_known_address())
