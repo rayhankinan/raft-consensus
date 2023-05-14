@@ -47,14 +47,14 @@ class RaftNode(metaclass=RaftNodeMeta):
     __commit_index: int = 0
     __last_applied: int = 0
     __current_state: State = State.FOLLOWER
-    __current_known_address: list[Address] = []
+    __current_known_address: set[Address] = set()
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
     # Initialize Method: Tidak perlu di-lock dan di-snapshot karena hanya dipanggil sebelum server dijalankan
     def initialize(self) -> None:
         if self.__current_leader_address == self.__config.get("SERVER_ADDRESS"):
             self.__current_state = State.LEADER
-            self.__current_known_address.append(
+            self.__current_known_address.add(
                 self.__config.get("SERVER_ADDRESS")
             )
 
@@ -68,7 +68,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
             asyncio.run(dynamically_call_procedure(conn, "apply_membership"))
 
-    # Private method
+    # Private Method
     def __apply_log(self, log: Log) -> None:
         match log.command:
             case "ENQUEUE":
@@ -108,7 +108,7 @@ class RaftNode(metaclass=RaftNodeMeta):
                     )
 
                     try:
-                        self.__current_known_address.append(
+                        self.__current_known_address.add(
                             Address(hostname, port)
                         )
                     except:
@@ -140,8 +140,8 @@ class RaftNode(metaclass=RaftNodeMeta):
         with self.__rw_locks["current_term"].r_locked():
             return self.__current_term
 
-    # Public Method
-    def get_current_known_address(self) -> list[Address]:
+    # Public Method: Test untuk client
+    def get_current_known_address(self) -> set[Address]:
         with self.__rw_locks["current_known_address"].r_locked():
             return self.__current_known_address
 
@@ -168,9 +168,11 @@ class RaftNode(metaclass=RaftNodeMeta):
             snapshot_last_applied = copy.deepcopy(self.__last_applied)
 
             try:
+                # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                 self.__storage.save_logs(self.__logs)
                 self.__commit_index = len(self.__logs) - 1
 
+                # TODO: Bisa dipisah menjadi sync commit
                 last_applied_log = self.__logs[self.__last_applied]
                 self.__apply_log(last_applied_log)
                 self.__last_applied += 1

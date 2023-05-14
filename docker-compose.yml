@@ -38,7 +38,6 @@ services:
       - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
-      - node-1:/mnt
     networks:
       - app-network
     depends_on:
@@ -60,7 +59,6 @@ services:
       - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
-      - node-2:/mnt
     networks:
       - app-network
     depends_on:
@@ -82,7 +80,6 @@ services:
       - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
-      - node-3:/mnt
     networks:
       - app-network
     depends_on:
@@ -104,7 +101,6 @@ services:
       - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
-      - node-4:/mnt
     networks:
       - app-network
     depends_on:
@@ -126,7 +122,6 @@ services:
       - LEADER_PORT=${LEADER_PORT}
     volumes:
       - ./server:/usr/src/app
-      - node-5:/mnt
     networks:
       - app-network
     depends_on:
@@ -136,18 +131,3 @@ services:
 networks:
   app-network:
     driver: bridge
-
-# Volumes
-volumes:
-  node-0:
-    driver: local
-  node-1:
-    driver: local
-  node-2:
-    driver: local
-  node-3:
-    driver: local
-  node-4:
-    driver: local
-  node-5:
-    driver: local
