@@ -313,7 +313,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             leader_commit_index,
         )
 
-    # TODO: Masih Untested
+    # TODO: Masih Implementasikan
     # Procedure
     def commit_membership_logs(self) -> None:
         pass

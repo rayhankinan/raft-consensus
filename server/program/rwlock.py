@@ -63,13 +63,4 @@ class RWLock(object):
             yield
         finally:
             self.__w_release()
-
-    # Get write lock
-    # @contextmanager
-    # def w_locked(self):
-    #     self.__w_acquire()
-
-    #     try:
-    #         yield
-    #     finally:
-    #         self.__w_release()
+            self.__r_acquire()
