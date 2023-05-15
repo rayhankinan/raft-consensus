@@ -181,15 +181,9 @@ class RaftNode(metaclass=RaftNodeMeta):
                             self.__membership_log
                         )
 
-                        with self.__rw_locks["known_address_commit_index"].w_locked(), self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                        with self.__rw_locks["known_address_commit_index"].w_locked():
                             snapshot_known_address_commit_index = copy.deepcopy(
                                 self.__known_address_commit_index
-                            )
-                            snapshot_known_address_last_applied = copy.deepcopy(
-                                self.__known_address_last_applied
-                            )
-                            snapshot_current_known_address = copy.deepcopy(
-                                self.__current_known_address
                             )
 
                             try:
@@ -197,39 +191,52 @@ class RaftNode(metaclass=RaftNodeMeta):
                                     self.__membership_log
                                 )
 
-                                while self.__known_address_last_applied < self.__known_address_commit_index:
-                                    last_applied_membership_log = self.__membership_log[
+                                with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                                    snapshot_known_address_last_applied = copy.deepcopy(
                                         self.__known_address_last_applied
-                                    ]
+                                    )
+                                    snapshot_current_known_address = copy.deepcopy(
+                                        self.__current_known_address
+                                    )
 
-                                    match last_applied_membership_log.command:
-                                        case "ADD_NODE":
-                                            entries = {
-                                                address: ServerInfo(
-                                                    len(self.__membership_log),
-                                                    0,
-                                                ) for address in last_applied_membership_log.args
-                                            }
-                                            self.__current_known_address.update(
-                                                entries
-                                            )
-                                        case "REMOVE_NODE":
-                                            for address in last_applied_membership_log.args:
-                                                self.__current_known_address.pop(
-                                                    address,
-                                                    None,
-                                                )
-                                        case _:
-                                            raise RuntimeError(
-                                                "Invalid log command")
+                                    try:
+                                        while self.__known_address_last_applied < self.__known_address_commit_index:
+                                            last_applied_membership_log = self.__membership_log[
+                                                self.__known_address_last_applied
+                                            ]
 
-                                    self.__known_address_last_applied += 1
+                                            match last_applied_membership_log.command:
+                                                case "ADD_NODE":
+                                                    entries = {
+                                                        address: ServerInfo(
+                                                            len(self.__membership_log),
+                                                            0,
+                                                        ) for address in last_applied_membership_log.args
+                                                    }
+                                                    self.__current_known_address.update(
+                                                        entries
+                                                    )
+                                                case "REMOVE_NODE":
+                                                    for address in last_applied_membership_log.args:
+                                                        self.__current_known_address.pop(
+                                                            address,
+                                                            None,
+                                                        )
+                                                case _:
+                                                    raise RuntimeError(
+                                                        "Invalid log command")
 
-                                # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
+                                            self.__known_address_last_applied += 1
+
+                                        # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
+                                    except:
+                                        self.__known_address_last_applied = snapshot_known_address_last_applied
+                                        self.__current_known_address = snapshot_current_known_address
+                                        raise RuntimeError(
+                                            "Failed to update known address last applied"
+                                        )
                             except:
                                 self.__known_address_commit_index = snapshot_known_address_commit_index
-                                self.__known_address_last_applied = snapshot_known_address_last_applied
-                                self.__current_known_address = snapshot_current_known_address
                                 raise RuntimeError(
                                     "Failed to update known address"
                                 )
