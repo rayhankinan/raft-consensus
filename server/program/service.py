@@ -88,47 +88,52 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def start(self) -> None:
-        with self.__rw_locks["current_role"].r_locked(), self.__rw_locks["current_known_address"].r_locked():
-            snapshot_current_state = copy.deepcopy(
-                self.__current_role
-            )
-            snapshot_current_known_address = copy.deepcopy(
-                self.__current_known_address
-            )
+        with self.__rw_locks["current_leader_address"].r_locked():
+            if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
+                conn = create_connection(self.__current_leader_address)
+                server_addresses = (
+                    self.__config.get("SERVER_ADDRESS"),
+                )
+                asyncio.run(
+                    dynamically_call_procedure(
+                        conn,
+                        "add_server",
+                        serialize(server_addresses),
+                    )
+                )
+                return
 
-            try:
-                with self.__rw_locks["current_leader_address"].r_locked():
-                    if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
-                        conn = create_connection(self.__current_leader_address)
-                        server_addresses = (
-                            self.__config.get("SERVER_ADDRESS"),
-                        )
-                        asyncio.run(
-                            dynamically_call_procedure(
-                                conn,
-                                "add_server",
-                                serialize(server_addresses),
+            with self.__rw_locks["membership_log"].r_locked():
+                server_info = ServerInfo(
+                    len(self.__membership_log),
+                    0,
+                )
+
+                with self.__rw_locks["current_role"].w_locked():
+                    snapshot_current_role = copy.deepcopy(
+                        self.__current_role
+                    )
+
+                    try:
+                        self.__current_role = Role.LEADER
+                        address = self.__config.get("SERVER_ADDRESS")
+
+                        with self.__rw_locks["current_known_address"].w_locked():
+                            snapshot_current_known_address = copy.deepcopy(
+                                self.__current_known_address
                             )
-                        )
-                        return
 
-                    with self.__rw_locks["membership_log"].r_locked():
-                        server_info = ServerInfo(
-                            len(self.__membership_log),
-                            0,
-                        )
-
-                        with self.__rw_locks["current_role"].r_to_w_locked():
-                            self.__current_role = Role.LEADER
-                            address = self.__config.get("SERVER_ADDRESS")
-
-                            with self.__rw_locks["current_known_address"].r_to_w_locked():
+                            try:
                                 self.__current_known_address.clear()
                                 self.__current_known_address[address] = server_info
-            except:
-                self.__current_role = snapshot_current_state
-                self.__current_known_address = snapshot_current_known_address
-                raise RuntimeError("Failed to initialize")
+                            except:
+                                self.__current_known_address = snapshot_current_known_address
+                                raise RuntimeError(
+                                    "Failed to update current known address"
+                                )
+                    except:
+                        self.__current_role = snapshot_current_role
+                        raise RuntimeError("Failed to initialize")
 
     # TODO: Implementasikan penghapusan node dari cluster
     # Public Method (Write)
@@ -137,52 +142,57 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def add_server(self, follower_addresses: Tuple[Address, ...]) -> None:
-        with self.__rw_locks["membership_log"].r_locked(), self.__rw_locks["known_address_commit_index"].r_locked(), self.__rw_locks["known_address_last_applied"].r_locked(), self.__rw_locks["current_known_address"].r_locked():
-            snapshot_membership_log = copy.deepcopy(self.__membership_log)
-            snapshot_known_address_commit_index = copy.deepcopy(
-                self.__known_address_commit_index
-            )
-            snapshot_known_address_last_applied = copy.deepcopy(
-                self.__known_address_last_applied
-            )
-            snapshot_current_known_address = copy.deepcopy(
-                self.__current_known_address
-            )
+        with self.__rw_locks["current_role"].r_locked():
+            if self.__current_role != Role.LEADER:
+                with self.__rw_locks["current_leader_address"].r_locked():
+                    conn = create_connection(
+                        self.__current_leader_address
+                    )
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "add_server",
+                            serialize(follower_addresses),
+                        )
+                    )
+                    return
 
-            try:
-                with self.__rw_locks["current_role"].r_locked():
-                    if self.__current_role != Role.LEADER:
-                        with self.__rw_locks["current_leader_address"].r_locked():
-                            conn = create_connection(
-                                self.__current_leader_address
-                            )
-                            asyncio.run(
-                                dynamically_call_procedure(
-                                    conn,
-                                    "add_server",
-                                    serialize(follower_addresses),
-                                )
-                            )
-                            return
+            with self.__rw_locks["current_term"].r_locked():
+                new_membership_log = MembershipLog(
+                    self.__current_term,
+                    "ADD_NODE",
+                    follower_addresses,
+                )
 
-                    with self.__rw_locks["current_term"].r_locked():
-                        new_membership_log = MembershipLog(
-                            self.__current_term,
-                            "ADD_NODE",
-                            follower_addresses,
+                with self.__rw_locks["membership_log"].w_locked():
+                    snapshot_membership_log = copy.deepcopy(
+                        self.__membership_log
+                    )
+
+                    try:
+                        self.__membership_log.append(
+                            new_membership_log
                         )
 
-                        with self.__rw_locks["membership_log"].r_to_w_locked():
-                            self.__membership_log.append(new_membership_log)
+                        # TODO: Broadcast append_membership_logs to all nodes and wait for majority
 
-                            # TODO: Broadcast append_membership_logs to all nodes and wait for majority
+                        # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
+                        self.__storage.save_membership_log(
+                            self.__membership_log
+                        )
 
-                            # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
-                            self.__storage.save_membership_log(
-                                self.__membership_log
+                        with self.__rw_locks["known_address_commit_index"].w_locked(), self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                            snapshot_known_address_commit_index = copy.deepcopy(
+                                self.__known_address_commit_index
+                            )
+                            snapshot_known_address_last_applied = copy.deepcopy(
+                                self.__known_address_last_applied
+                            )
+                            snapshot_current_known_address = copy.deepcopy(
+                                self.__current_known_address
                             )
 
-                            with self.__rw_locks["known_address_commit_index"].r_to_w_locked(), self.__rw_locks["known_address_last_applied"].r_to_w_locked(), self.__rw_locks["current_known_address"].r_to_w_locked():
+                            try:
                                 self.__known_address_commit_index = len(
                                     self.__membership_log
                                 )
@@ -216,54 +226,69 @@ class RaftNode(metaclass=RaftNodeMeta):
                                     self.__known_address_last_applied += 1
 
                                 # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
-
-            except:
-                self.__membership_log = snapshot_membership_log
-                self.__known_address_commit_index = snapshot_known_address_commit_index
-                self.__known_address_last_applied = snapshot_known_address_last_applied
-                self.__current_known_address = snapshot_current_known_address
-
-                self.__storage.save_membership_log(self.__membership_log)
-                raise RuntimeError("Failed to add server")
+                            except:
+                                self.__known_address_commit_index = snapshot_known_address_commit_index
+                                self.__known_address_last_applied = snapshot_known_address_last_applied
+                                self.__current_known_address = snapshot_current_known_address
+                                raise RuntimeError(
+                                    "Failed to update known address"
+                                )
+                    except:
+                        self.__membership_log = snapshot_membership_log
+                        self.__storage.save_membership_log(
+                            self.__membership_log
+                        )
+                        raise RuntimeError("Failed to add server")
 
     # Public Method (Write)
     def append_membership_logs(self, term: int, prev_log_index: int, prev_log_term: int, new_membership_logs: list[MembershipLog], leader_commit_index: int) -> None:
-        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["membership_log"].r_locked(), self.__rw_locks["known_address_commit_index"].r_locked():
-            snapshot_membership_log = copy.deepcopy(self.__membership_log)
-            snapshot_known_address_commit_index = copy.deepcopy(
-                self.__known_address_commit_index
-            )
-
-            temporary_index = prev_log_index
-            temporary_length = len(self.__membership_log)
-
+        with self.__rw_locks["current_term"].r_locked():
             if term < self.__current_term:
                 raise RuntimeError("Term is too old")
 
-            if self.__membership_log[prev_log_index].term != prev_log_term:
-                # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
-                raise RuntimeError("Prev Log Term does not match")
+            with self.__rw_locks["membership_log"].r_locked():
+                if self.__membership_log[prev_log_index].term != prev_log_term:
+                    # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
+                    raise RuntimeError("Prev Log Term does not match")
 
-            try:
+                temporary_length = len(self.__membership_log)
+
                 with self.__rw_locks["membership_log"].r_to_w_locked():
-                    for membership_log in new_membership_logs:
-                        temporary_index += 1
+                    snapshot_membership_log = copy.deepcopy(
+                        self.__membership_log
+                    )
 
-                        if temporary_index < temporary_length:
-                            self.__membership_log[temporary_index] = membership_log
-                        else:
-                            self.__membership_log.append(membership_log)
+                    try:
+                        temporary_index = prev_log_index
 
-                    with self.__rw_locks["known_address_commit_index"].r_to_w_locked():
-                        final_length = len(self.__membership_log)
-                        self.__known_address_commit_index = min(
-                            leader_commit_index,
-                            final_length - 1,
-                        )
-            except:
-                self.__membership_log = snapshot_membership_log
-                self.__known_address_commit_index = snapshot_known_address_commit_index
-                raise RuntimeError("Failed to append membership logs")
+                        for membership_log in new_membership_logs:
+                            temporary_index += 1
+
+                            if temporary_index < temporary_length:
+                                self.__membership_log[temporary_index] = membership_log
+                            else:
+                                self.__membership_log.append(membership_log)
+
+                        with self.__rw_locks["known_address_commit_index"].w_locked():
+                            snapshot_known_address_commit_index = copy.deepcopy(
+                                self.__known_address_commit_index
+                            )
+
+                            try:
+                                final_length = len(self.__membership_log)
+                                self.__known_address_commit_index = min(
+                                    leader_commit_index,
+                                    final_length - 1,
+                                )
+                            except:
+                                self.__known_address_commit_index = snapshot_known_address_commit_index
+                                raise RuntimeError(
+                                    "Failed to update known address commit index"
+                                )
+
+                    except:
+                        self.__membership_log = snapshot_membership_log
+                        raise RuntimeError("Failed to append membership logs")
 
     # TODO: Implementasikan commit_membership_logs
     # Public Method (Write)
