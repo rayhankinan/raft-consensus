@@ -22,13 +22,6 @@ class ServerConfig(metaclass=ServerConfigMeta):
         "SERVER_ADDRESS": Address(os.getenv("SERVER_HOSTNAME", "localhost"), int(os.getenv("SERVER_PORT", "8080"))),
         "LEADER_ADDRESS": Address(os.getenv("LEADER_HOSTNAME", "localhost"), int(os.getenv("LEADER_PORT", "8080"))),
     }
-    __setters = []
 
     def get(self, name: str) -> Address:
         return ServerConfig.__conf[name]
-
-    def set(self, name: str, address: Address) -> None:
-        if name not in ServerConfig.__setters:
-            raise NameError("Name not accepted in set() method")
-
-        ServerConfig.__conf[name] = address

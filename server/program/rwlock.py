@@ -52,12 +52,24 @@ class RWLock(object):
     def __w_release(self):
         self.__w_lock.release()
 
-    # Get write lock
+    # TODO: Implementasikan
+    # Upgrade read lock to write lock
     @contextmanager
-    def w_locked(self):
+    def r_to_w_locked(self):
+        self.__r_release()
         self.__w_acquire()
 
         try:
             yield
         finally:
             self.__w_release()
+
+    # Get write lock
+    # @contextmanager
+    # def w_locked(self):
+    #     self.__w_acquire()
+
+    #     try:
+    #         yield
+    #     finally:
+    #         self.__w_release()

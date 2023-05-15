@@ -88,7 +88,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def start(self) -> None:
-        with self.__rw_locks["current_leader_address"].r_locked(), self.__rw_locks["membership_log"].r_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+        with self.__rw_locks["current_role"].r_locked(), self.__rw_locks["current_known_address"].r_locked():
             snapshot_current_state = copy.deepcopy(
                 self.__current_role
             )
@@ -97,29 +97,34 @@ class RaftNode(metaclass=RaftNodeMeta):
             )
 
             try:
-                if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
-                    conn = create_connection(self.__current_leader_address)
-                    server_addresses = (
-                        self.__config.get("SERVER_ADDRESS"),
-                    )
-                    asyncio.run(
-                        dynamically_call_procedure(
-                            conn,
-                            "add_server",
-                            serialize(server_addresses),
+                with self.__rw_locks["current_leader_address"].r_locked():
+                    if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
+                        conn = create_connection(self.__current_leader_address)
+                        server_addresses = (
+                            self.__config.get("SERVER_ADDRESS"),
                         )
-                    )
-                    return
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "add_server",
+                                serialize(server_addresses),
+                            )
+                        )
+                        return
 
-                self.__current_role = Role.LEADER
-                address = self.__config.get("SERVER_ADDRESS")
-                server_info = ServerInfo(
-                    len(self.__membership_log),
-                    0,
-                )
+                    with self.__rw_locks["membership_log"].r_locked():
+                        server_info = ServerInfo(
+                            len(self.__membership_log),
+                            0,
+                        )
 
-                self.__current_known_address.clear()
-                self.__current_known_address[address] = server_info
+                        with self.__rw_locks["current_role"].r_to_w_locked():
+                            self.__current_role = Role.LEADER
+                            address = self.__config.get("SERVER_ADDRESS")
+
+                            with self.__rw_locks["current_known_address"].r_to_w_locked():
+                                self.__current_known_address.clear()
+                                self.__current_known_address[address] = server_info
             except:
                 self.__current_role = snapshot_current_state
                 self.__current_known_address = snapshot_current_known_address
@@ -132,7 +137,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def add_server(self, follower_addresses: Tuple[Address, ...]) -> None:
-        with self.__rw_locks["current_role"].r_locked(), self.__rw_locks["current_leader_address"].r_locked(), self.__rw_locks["current_term"].r_locked(), self.__rw_locks["membership_log"].w_locked(), self.__rw_locks["known_address_commit_index"].w_locked(), self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+        with self.__rw_locks["membership_log"].r_locked(), self.__rw_locks["known_address_commit_index"].r_locked(), self.__rw_locks["known_address_last_applied"].r_locked(), self.__rw_locks["current_known_address"].r_locked():
             snapshot_membership_log = copy.deepcopy(self.__membership_log)
             snapshot_known_address_commit_index = copy.deepcopy(
                 self.__known_address_commit_index
@@ -145,53 +150,72 @@ class RaftNode(metaclass=RaftNodeMeta):
             )
 
             try:
-                if self.__current_role != Role.LEADER:
-                    conn = create_connection(self.__current_leader_address)
-                    asyncio.run(
-                        dynamically_call_procedure(
-                            conn,
-                            "add_server",
-                            serialize(follower_addresses),
+                with self.__rw_locks["current_role"].r_locked():
+                    if self.__current_role != Role.LEADER:
+                        with self.__rw_locks["current_leader_address"].r_locked():
+                            conn = create_connection(
+                                self.__current_leader_address
+                            )
+                            asyncio.run(
+                                dynamically_call_procedure(
+                                    conn,
+                                    "add_server",
+                                    serialize(follower_addresses),
+                                )
+                            )
+                            return
+
+                    with self.__rw_locks["current_term"].r_locked():
+                        new_membership_log = MembershipLog(
+                            self.__current_term,
+                            "ADD_NODE",
+                            follower_addresses,
                         )
-                    )
-                    return
 
-                new_membership_log = MembershipLog(
-                    self.__current_term,
-                    "ADD_NODE",
-                    follower_addresses,
-                )
-                self.__membership_log.append(new_membership_log)
+                        with self.__rw_locks["membership_log"].r_to_w_locked():
+                            self.__membership_log.append(new_membership_log)
 
-                # TODO: Broadcast append_membership_logs to all nodes and wait for majority
+                            # TODO: Broadcast append_membership_logs to all nodes and wait for majority
 
-                # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
-                self.__storage.save_membership_log(self.__membership_log)
-                self.__known_address_commit_index = len(self.__membership_log)
+                            # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
+                            self.__storage.save_membership_log(
+                                self.__membership_log
+                            )
 
-                while self.__known_address_last_applied < self.__known_address_commit_index:
-                    last_applied_membership_log = self.__membership_log[
-                        self.__known_address_last_applied
-                    ]
+                            with self.__rw_locks["known_address_commit_index"].r_to_w_locked(), self.__rw_locks["known_address_last_applied"].r_to_w_locked(), self.__rw_locks["current_known_address"].r_to_w_locked():
+                                self.__known_address_commit_index = len(
+                                    self.__membership_log
+                                )
 
-                    match last_applied_membership_log.command:
-                        case "ADD_NODE":
-                            entries = {
-                                address: ServerInfo(
-                                    len(self.__membership_log),
-                                    0,
-                                ) for address in last_applied_membership_log.args
-                            }
-                            self.__current_known_address.update(entries)
-                        case "REMOVE_NODE":
-                            for address in last_applied_membership_log.args:
-                                self.__current_known_address.pop(address, None)
-                        case _:
-                            raise RuntimeError("Invalid log command")
+                                while self.__known_address_last_applied < self.__known_address_commit_index:
+                                    last_applied_membership_log = self.__membership_log[
+                                        self.__known_address_last_applied
+                                    ]
 
-                    self.__known_address_last_applied += 1
+                                    match last_applied_membership_log.command:
+                                        case "ADD_NODE":
+                                            entries = {
+                                                address: ServerInfo(
+                                                    len(self.__membership_log),
+                                                    0,
+                                                ) for address in last_applied_membership_log.args
+                                            }
+                                            self.__current_known_address.update(
+                                                entries
+                                            )
+                                        case "REMOVE_NODE":
+                                            for address in last_applied_membership_log.args:
+                                                self.__current_known_address.pop(
+                                                    address,
+                                                    None,
+                                                )
+                                        case _:
+                                            raise RuntimeError(
+                                                "Invalid log command")
 
-                # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
+                                    self.__known_address_last_applied += 1
+
+                                # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
 
             except:
                 self.__membership_log = snapshot_membership_log
@@ -204,7 +228,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def append_membership_logs(self, term: int, prev_log_index: int, prev_log_term: int, new_membership_logs: list[MembershipLog], leader_commit_index: int) -> None:
-        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["membership_log"].w_locked(), self.__rw_locks["known_address_commit_index"].w_locked():
+        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["membership_log"].r_locked(), self.__rw_locks["known_address_commit_index"].r_locked():
             snapshot_membership_log = copy.deepcopy(self.__membership_log)
             snapshot_known_address_commit_index = copy.deepcopy(
                 self.__known_address_commit_index
@@ -221,19 +245,21 @@ class RaftNode(metaclass=RaftNodeMeta):
                 raise RuntimeError("Prev Log Term does not match")
 
             try:
-                for membership_log in new_membership_logs:
-                    temporary_index += 1
+                with self.__rw_locks["membership_log"].r_to_w_locked():
+                    for membership_log in new_membership_logs:
+                        temporary_index += 1
 
-                    if temporary_index < temporary_length:
-                        self.__membership_log[temporary_index] = membership_log
-                    else:
-                        self.__membership_log.append(membership_log)
+                        if temporary_index < temporary_length:
+                            self.__membership_log[temporary_index] = membership_log
+                        else:
+                            self.__membership_log.append(membership_log)
 
-                final_length = len(self.__membership_log)
-                self.__known_address_commit_index = min(
-                    leader_commit_index,
-                    final_length - 1,
-                )
+                    with self.__rw_locks["known_address_commit_index"].r_to_w_locked():
+                        final_length = len(self.__membership_log)
+                        self.__known_address_commit_index = min(
+                            leader_commit_index,
+                            final_length - 1,
+                        )
             except:
                 self.__membership_log = snapshot_membership_log
                 self.__known_address_commit_index = snapshot_known_address_commit_index
