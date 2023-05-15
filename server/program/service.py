@@ -134,37 +134,40 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def initialize(self) -> None:
-        with self.__rw_locks["current_state"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
-            snapshot_current_state = copy.deepcopy(self.__current_state)
-            snapshot_current_known_address = copy.deepcopy(
-                self.__current_known_address
-            )
-
-            try:
-                if self.__current_leader_address == self.__config.get("SERVER_ADDRESS"):
-                    self.__current_state = State.LEADER
-                    self.__current_known_address.add(
-                        self.__config.get("SERVER_ADDRESS")
+        with self.__rw_locks["current_leader_address"].r_locked():
+            if self.__current_leader_address == self.__config.get("SERVER_ADDRESS"):
+                with self.__rw_locks["current_state"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                    snapshot_current_state = copy.deepcopy(
+                        self.__current_state
+                    )
+                    snapshot_current_known_address = copy.deepcopy(
+                        self.__current_known_address
                     )
 
-                else:
-                    hostname, port = self.__current_leader_address
-                    conn: rpyc.Connection = rpyc.connect(
-                        hostname,
-                        port,
-                        service=ServerService,
-                    )
-
-                    asyncio.run(
-                        dynamically_call_procedure(
-                            conn,
-                            "apply_membership",
+                    try:
+                        self.__current_state = State.LEADER
+                        self.__current_known_address.add(
+                            self.__config.get("SERVER_ADDRESS")
                         )
+                    except:
+                        self.__current_state = snapshot_current_state
+                        self.__current_known_address = snapshot_current_known_address
+                        raise RuntimeError("Failed to initialize")
+
+            else:
+                hostname, port = self.__current_leader_address
+                conn: rpyc.Connection = rpyc.connect(
+                    hostname,
+                    port,
+                    service=ServerService,
+                )
+
+                asyncio.run(
+                    dynamically_call_procedure(
+                        conn,
+                        "apply_membership",
                     )
-            except:
-                self.__current_state = snapshot_current_state
-                self.__current_known_address = snapshot_current_known_address
-                raise RuntimeError("Failed to initialize")
+                )
 
     # Public Method (Write)
     def add_log(self, log: Log) -> None:
