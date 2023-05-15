@@ -1,7 +1,8 @@
 import pickle
 import os
 from threading import Lock
-from . import MembershipLog, StateLog, ServerConfig, Address
+from data import MembershipLog, StateLog, Address
+from . import ServerConfig
 
 
 class StorageMeta(type):

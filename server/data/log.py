@@ -1,4 +1,4 @@
-from typing import Literal, Tuple, NamedTuple, Any
+from typing import Literal, Tuple, NamedTuple
 from . import Address
 
 

@@ -1,7 +1,8 @@
 import rpyc
 import asyncio
 from typing import Tuple
-from . import RaftNode, MembershipLog, Address, ServerConfig, Role, dynamically_call_procedure, serialize, deserialize
+from data import MembershipLog, Address, Role
+from . import RaftNode, ServerConfig, dynamically_call_procedure, serialize, deserialize
 
 
 @rpyc.service
@@ -51,30 +52,26 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             raw_follower_address
         )
 
-        new_membership_log = MembershipLog(
-            self.__node.get_current_term(),
-            "ADD_NODE",
-            follower_addresses
-        )
+        self.__node.add_server(follower_addresses)
 
-        self.__node.add_membership_log(new_membership_log)
-
-        # TODO: Broadcast append membership logs to all nodes and wait for majority
-
-        self.__node.commit_membership_log()
-
-        # TODO: Broadcast commit membership logs to all nodes and wait for majority
-
+    # TODO: Masih Untested
     # Procedure
-    def append_membership_logs(self, raw_term: bytes, raw_membership_logs: bytes) -> None:
+    def append_membership_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_membership_logs: bytes, raw_leader_commit_index: bytes) -> None:
+        # Serialize Parameter
         term: int = deserialize(raw_term)
+        prev_log_index: int = deserialize(raw_prev_log_index)
+        prev_log_term: int = deserialize(raw_prev_log_term)
+        new_membership_logs: list[MembershipLog] = deserialize(
+            raw_new_membership_logs
+        )
+        leader_commit_index: int = deserialize(raw_leader_commit_index)
 
-        if term < self.__node.get_current_term():
-            raise RuntimeError("Term is too old")
-
-        # TODO: Lanjutkan ini
-
-        pass
+        self.__node.append_membership_logs(
+            term, prev_log_index,
+            prev_log_term,
+            new_membership_logs,
+            leader_commit_index,
+        )
 
     # Procedure: Test untuk client
     @rpyc.exposed
