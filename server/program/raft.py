@@ -44,15 +44,17 @@ class RaftNode(metaclass=RaftNodeMeta):
     __current_term: int = __storage.get_current_term()
     __voted_for: Address = __storage.get_voted_for()
 
-    # Volatile state on all servers
+    # Volatile queue state on all servers
     __state_machine: Queue[str] = Queue()
     __state_commit_index: int = 0
     __state_last_applied: int = 0
 
+    # Volatile address state on all servers
     __current_known_address: set[Address] = set()
     __known_address_commit_index = 0
     __known_address_last_applied = 0
 
+    # Other state
     __current_role: Role = Role.FOLLOWER
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 

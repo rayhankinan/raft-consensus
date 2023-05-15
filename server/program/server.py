@@ -1,6 +1,7 @@
 from threading import Lock
+from typing import Callable, Optional
 from rpyc.utils.server import ThreadedServer
-from . import ServerConfig, ServerService
+from . import ServerConfig, ServerService, Script
 
 
 class ServerMeta(type):
@@ -17,7 +18,8 @@ class ServerMeta(type):
 
 class Server(metaclass=ServerMeta):
     # Utility
-    __config: ServerConfig = ServerConfig()
+    __config = ServerConfig()
+    __script = Script()
 
     # State
     __server = ThreadedServer(
@@ -25,8 +27,24 @@ class Server(metaclass=ServerMeta):
         port=__config.get("SERVER_ADDRESS").port,
     )
 
-    def start(self) -> None:
+    def start(self, function: Optional[Callable[[], None]] = None) -> None:
+        # Execute function if exists
+        if function != None:
+            function()
+
+        # Start sequence
+        self.__script.start()
+
+        # Start service
         self.__server.start()
 
-    def stop(self) -> None:
+    def stop(self, function: Optional[Callable[[], None]] = None) -> None:
+        # Execute function if exists
+        if function != None:
+            function()
+
+        # Stop service
         self.__server.close()
+
+        # Stop sequence
+        self.__script.stop()

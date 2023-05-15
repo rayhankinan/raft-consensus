@@ -57,7 +57,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Procedure: Test untuk client
     @rpyc.exposed
     def print_membership_log(self) -> None:
-        print("Logs:", self.__node.get_membership_log())
+        print("Membership Logs:", self.__node.get_membership_log())
 
     # Procedure: Test untuk client
     @rpyc.exposed
