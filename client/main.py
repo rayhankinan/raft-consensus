@@ -11,6 +11,6 @@ if __name__ == "__main__":
     )
 
     asyncio.run(dynamically_call_procedure(conn, "print_known_address"))
-    asyncio.run(dynamically_call_procedure(conn, "print_logs"))
+    asyncio.run(dynamically_call_procedure(conn, "print_membership_log"))
 
     conn.close()

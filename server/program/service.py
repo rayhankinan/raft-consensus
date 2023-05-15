@@ -1,6 +1,6 @@
 import rpyc
-import asyncio
-from . import RaftNode, Log, Address, ServerConfig, dynamically_call_procedure, serialize, deserialize
+from typing import Tuple
+from . import RaftNode, MembershipLog, Address, ServerConfig, serialize, deserialize
 
 
 @rpyc.service
@@ -17,39 +17,46 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def on_disconnect(self, conn: rpyc.Connection) -> None:
         conn.close()
 
-    @rpyc.exposed
-    def apply_membership(self) -> None:
-        follower_address: Address = deserialize(
-            asyncio.run(
-                dynamically_call_procedure(
-                    self.__conn,
-                    "get_current_address",
-                )
-            )
-        )
-
-        new_log = Log(
-            self.__node.get_current_term(),
-            "ADD_NODE",
-            follower_address,
-        )
-
-        self.__node.add_log(new_log)
-        # TODO: Broadcast add log to all nodes and wait for majority
-
-        self.__node.commit_log()
-        # TODO: Broadcast commit log to all nodes and wait for majority
-
+    # Function
     @rpyc.exposed
     def get_current_address(self) -> bytes:
         return serialize(self.__config.get("SERVER_ADDRESS"))
 
-    # Test untuk client
+    # Procedure
     @rpyc.exposed
-    def print_logs(self) -> None:
-        print("Logs:", self.__node.get_logs())
+    def add_server(self, raw_follower_address: bytes) -> None:
+        follower_addresses: Tuple[Address, ...] = deserialize(
+            raw_follower_address
+        )
 
-    # Test untuk client
+        new_membership_log = MembershipLog(
+            self.__node.get_current_term(),
+            "ADD_NODE",
+            follower_addresses
+        )
+
+        self.__node.add_membership_log(new_membership_log)
+        # TODO: Broadcast add log to all nodes and wait for majority
+
+        self.__node.commit_membership_log()
+        # TODO: Broadcast commit log to all nodes and wait for majority
+
+    # Procedure
+    @rpyc.exposed
+    def add_membership_log(self, membership_log: bytes) -> None:
+        self.__node.add_membership_log(deserialize(membership_log))
+
+    # Procedure
+    @rpyc.exposed
+    def commit_membership_log(self) -> None:
+        self.__node.commit_membership_log()
+
+    # Procedure: Test untuk client
+    @rpyc.exposed
+    def print_membership_log(self) -> None:
+        print("Logs:", self.__node.get_membership_log())
+
+    # Procedure: Test untuk client
     @rpyc.exposed
     def print_known_address(self) -> None:
         print("Known Address:", self.__node.get_current_known_address())

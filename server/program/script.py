@@ -1,7 +1,7 @@
 import rpyc
 import asyncio
 from threading import Lock
-from . import RaftNode, ServerConfig, ServerService, dynamically_call_procedure
+from . import RaftNode, ServerConfig, ServerService, dynamically_call_procedure, serialize
 
 
 class ScriptMeta(type):
@@ -33,10 +33,12 @@ class Script(metaclass=ScriptMeta):
                 service=ServerService,
             )
 
+            current_server_address = (self.__config.get("SERVER_ADDRESS"), )
             asyncio.run(
                 dynamically_call_procedure(
                     conn,
-                    "apply_membership",
+                    "add_server",
+                    serialize(current_server_address),
                 )
             )
 

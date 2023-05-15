@@ -1,7 +1,7 @@
 import pickle
 import os
 from threading import Lock
-from . import Log, ServerConfig, Address
+from . import MembershipLog, StateLog, ServerConfig, Address
 
 
 class StorageMeta(type):
@@ -20,17 +20,30 @@ class Storage(metaclass=StorageMeta):
     _base_dir: str = "/mnt/data"
     _config: ServerConfig = ServerConfig()
 
-    def get_logs(self) -> list[Log]:
+    def get_membership_log(self) -> list[MembershipLog]:
         try:
-            with open(f"{self._base_dir}/logs.pickle", "rb") as f:
+            with open(f"{self._base_dir}/membership_log.pickle", "rb") as f:
                 return pickle.load(f)
         except FileNotFoundError:
             return []
 
-    def save_logs(self, logs: list[Log]) -> None:
+    def save_membership_log(self, logs: list[MembershipLog]) -> None:
         os.makedirs(self._base_dir, exist_ok=True)
 
-        with open(f"{self._base_dir}/logs.pickle", "wb") as f:
+        with open(f"{self._base_dir}/membership_log.pickle", "wb") as f:
+            pickle.dump(logs, f)
+
+    def get_state_log(self) -> list[StateLog]:
+        try:
+            with open(f"{self._base_dir}/state_log.pickle", "rb") as f:
+                return pickle.load(f)
+        except FileNotFoundError:
+            return []
+
+    def save_state_log(self, logs: list[StateLog]) -> None:
+        os.makedirs(self._base_dir, exist_ok=True)
+
+        with open(f"{self._base_dir}/state_log.pickle", "wb") as f:
             pickle.dump(logs, f)
 
     def get_current_term(self) -> int:

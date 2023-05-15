@@ -1,7 +1,14 @@
 from typing import Literal, Tuple, NamedTuple, Any
+from . import Address
 
 
-class Log(NamedTuple):
+class StateLog(NamedTuple):
     term: int
-    command: Literal["ENQUEUE", "DEQUEUE", "ADD_NODE", "REMOVE_NODE"]
-    args: Tuple[Any, ...]
+    command: Literal["ENQUEUE", "DEQUEUE"]
+    args: Tuple[str, ...]
+
+
+class MembershipLog(NamedTuple):
+    term: int
+    command: Literal["ADD_NODE", "REMOVE_NODE"]
+    args: Tuple[Address, ...]
