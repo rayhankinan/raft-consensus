@@ -218,7 +218,7 @@ class RaftNode(metaclass=RaftNodeMeta):
 
                     self.__known_address_last_applied += 1
 
-                # TODO: Broadcast commit membership logs to all nodes and wait for majority
+                # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
 
             except:
                 self.__membership_log = snapshot_membership_log
