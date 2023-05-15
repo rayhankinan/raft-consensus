@@ -76,27 +76,12 @@ class RaftNode(metaclass=RaftNodeMeta):
     __current_role: Role = Role.FOLLOWER
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
-    # Public Method (Read)
-    def get_current_term(self) -> int:
-        with self.__rw_locks["current_term"].r_locked():
-            return self.__current_term
-
-    # Public Method (Read)
+    # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
         with self.__rw_locks["current_known_address"].r_locked():
             return self.__current_known_address
 
-    # Public Method (Read)
-    def get_current_leader_address(self) -> Address:
-        with self.__rw_locks["current_leader_address"].r_locked():
-            return self.__current_leader_address
-
-    # Public Method (Read)
-    def get_current_role(self) -> Role:
-        with self.__rw_locks["current_role"].r_locked():
-            return self.__current_role
-
-    # Public Method (Read)
+    # Public Method (Read): Testing untuk client
     def get_membership_log(self) -> list[MembershipLog]:
         with self.__rw_locks["membership_log"].r_locked():
             return self.__membership_log
@@ -144,64 +129,6 @@ class RaftNode(metaclass=RaftNodeMeta):
     # Public Method (Write)
     def stop(self) -> None:
         pass
-
-    # Public Method (Write)
-    def add_membership_log(self, membership_log: MembershipLog) -> None:
-        with self.__rw_locks["membership_log"].w_locked():
-            snapshot_membership_log = copy.deepcopy(self.__membership_log)
-
-            try:
-                self.__membership_log.append(membership_log)
-            except:
-                self.__membership_log = snapshot_membership_log
-                raise RuntimeError("Failed to add membership log")
-
-    # Public Method (Write)
-    def commit_membership_log(self) -> None:
-        with self.__rw_locks["membership_log"].r_locked(), self.__rw_locks["known_address_commit_index"].w_locked(), self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
-            snapshot_known_address_commit_index = copy.deepcopy(
-                self.__known_address_commit_index
-            )
-            snapshot_known_address_last_applied = copy.deepcopy(
-                self.__known_address_last_applied
-            )
-            snapshot_current_known_address = copy.deepcopy(
-                self.__current_known_address
-            )
-
-            try:
-                # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
-                self.__storage.save_membership_log(self.__membership_log)
-                self.__known_address_commit_index = len(self.__membership_log)
-
-                while self.__known_address_last_applied < self.__known_address_commit_index:
-                    last_applied_membership_log = self.__membership_log[
-                        self.__known_address_last_applied
-                    ]
-
-                    match last_applied_membership_log.command:
-                        case "ADD_NODE":
-                            entries = {
-                                address: ServerInfo(
-                                    len(self.__membership_log),
-                                    0,
-                                ) for address in last_applied_membership_log.args
-                            }
-                            self.__current_known_address.update(entries)
-                        case "REMOVE_NODE":
-                            for address in last_applied_membership_log.args:
-                                self.__current_known_address.pop(address, None)
-                        case _:
-                            raise RuntimeError("Invalid log command")
-
-                    self.__known_address_last_applied += 1
-            except:
-                self.__known_address_commit_index = snapshot_known_address_commit_index
-                self.__known_address_last_applied = snapshot_known_address_last_applied
-                self.__current_known_address = snapshot_current_known_address
-
-                self.__storage.save_membership_log(self.__membership_log)
-                raise RuntimeError("Failed to commit log")
 
     # Public Method (Write)
     def add_server(self, follower_addresses: Tuple[Address, ...]) -> None:
@@ -311,6 +238,11 @@ class RaftNode(metaclass=RaftNodeMeta):
                 self.__membership_log = snapshot_membership_log
                 self.__known_address_commit_index = snapshot_known_address_commit_index
                 raise RuntimeError("Failed to append membership logs")
+
+    # TODO: Implementasikan commit_membership_logs
+    # Public Method (Write)
+    def commit_membership_logs(self) -> None:
+        pass
 
 
 @rpyc.service
