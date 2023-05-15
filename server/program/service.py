@@ -1,6 +1,7 @@
 import rpyc
+import asyncio
 from typing import Tuple
-from . import RaftNode, MembershipLog, Address, ServerConfig, Role, serialize, deserialize
+from . import RaftNode, MembershipLog, Address, ServerConfig, Role, dynamically_call_procedure, serialize, deserialize
 
 
 @rpyc.service
@@ -25,8 +26,26 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Procedure
     @rpyc.exposed
     def add_server(self, raw_follower_address: bytes) -> None:
+        # If not leader, forward to leader
         if self.__node.get_current_role() != Role.LEADER:
-            raise RuntimeError("Not a leader")
+            current_leader_address = self.__node.get_current_leader_address()
+            hostname, port = current_leader_address
+            conn = rpyc.connect(
+                hostname,
+                port,
+                service=ServerService,
+            )
+
+            if type(conn) != rpyc.Connection:
+                raise RuntimeError("Failed to connect to leader")
+
+            return asyncio.run(
+                dynamically_call_procedure(
+                    conn,
+                    "add_server",
+                    raw_follower_address,
+                )
+            )
 
         follower_addresses: Tuple[Address, ...] = deserialize(
             raw_follower_address

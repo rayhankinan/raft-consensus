@@ -28,11 +28,14 @@ class Script(metaclass=ScriptMeta):
             return
 
         hostname, port = current_leader_address
-        conn: rpyc.Connection = rpyc.connect(
+        conn = rpyc.connect(
             hostname,
             port,
             service=ServerService,
         )
+
+        if type(conn) != rpyc.Connection:
+            raise RuntimeError("Failed to connect to leader")
 
         current_server_address = (self.__config.get("SERVER_ADDRESS"), )
         asyncio.run(
