@@ -5,15 +5,15 @@ from . import Log, ServerConfig, Address
 
 
 class StorageMeta(type):
-    _instances = {}
-    _lock: Lock = Lock()
+    __instances = {}
+    __lock: Lock = Lock()
 
     def __call__(cls, *args, **kwargs):
-        with cls._lock:
-            if cls not in cls._instances:
+        with cls.__lock:
+            if cls not in cls.__instances:
                 instance = super().__call__(*args, **kwargs)
-                cls._instances[cls] = instance
-        return cls._instances[cls]
+                cls.__instances[cls] = instance
+        return cls.__instances[cls]
 
 
 class Storage(metaclass=StorageMeta):
