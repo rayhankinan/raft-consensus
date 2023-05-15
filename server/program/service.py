@@ -59,11 +59,11 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
         self.__node.add_membership_log(new_membership_log)
 
-        # TODO: Broadcast add log to all nodes and wait for majority
+        # TODO: Broadcast append membership logs to all nodes and wait for majority
 
         self.__node.commit_membership_log()
 
-        # TODO: Broadcast commit log to all nodes and wait for majority
+        # TODO: Broadcast commit membership logs to all nodes and wait for majority
 
     # Procedure
     def append_membership_logs(self, raw_term: bytes, raw_membership_logs: bytes) -> None:

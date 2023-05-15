@@ -50,7 +50,7 @@ class RaftNode(metaclass=RaftNodeMeta):
     __state_last_applied: int = 0
 
     # Volatile address state on all servers
-    __current_known_address: set[ServerInfo] = set()
+    __current_known_address: dict[Address, ServerInfo] = {}
     __known_address_commit_index = 0
     __known_address_last_applied = 0
 
@@ -64,7 +64,7 @@ class RaftNode(metaclass=RaftNodeMeta):
             return self.__current_term
 
     # Public Method (Read)
-    def get_current_known_address(self) -> set[ServerInfo]:
+    def get_current_known_address(self) -> dict[Address, ServerInfo]:
         with self.__rw_locks["current_known_address"].r_locked():
             return self.__current_known_address
 
@@ -95,14 +95,14 @@ class RaftNode(metaclass=RaftNodeMeta):
 
             try:
                 self.__current_role = Role.LEADER
+                address = self.__config.get("SERVER_ADDRESS")
                 server_info = ServerInfo(
-                    self.__config.get("SERVER_ADDRESS"),
                     len(self.__membership_log),
                     0,
                 )
 
                 self.__current_known_address.clear()
-                self.__current_known_address.add(server_info)
+                self.__current_known_address[address] = server_info
             except:
                 self.__current_role = snapshot_current_state
                 self.__current_known_address = snapshot_current_known_address
@@ -144,19 +144,17 @@ class RaftNode(metaclass=RaftNodeMeta):
 
                     match last_applied_membership_log.command:
                         case "ADD_NODE":
-                            server_infos = [ServerInfo(address, len(self.__membership_log), 0)
-                                            for address in last_applied_membership_log.args]
+                            entries = {
+                                address: ServerInfo(
+                                    len(self.__membership_log),
+                                    0,
+                                ) for address in last_applied_membership_log.args
+                            }
 
-                            self.__current_known_address.update(
-                                server_infos
-                            )
+                            self.__current_known_address.update(entries)
                         case "REMOVE_NODE":
-                            server_infos = [ServerInfo(address, len(self.__membership_log), 0)
-                                            for address in last_applied_membership_log.args]
-
-                            self.__current_known_address.difference_update(
-                                server_infos
-                            )
+                            for address in last_applied_membership_log.args:
+                                self.__current_known_address.pop(address, None)
                         case _:
                             raise RuntimeError("Invalid log command")
 
