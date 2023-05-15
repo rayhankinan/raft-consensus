@@ -7,4 +7,4 @@ from .storage import *
 from .raft import *
 from .utils import *
 from .service import *
-from .startup import *
+from .script import *

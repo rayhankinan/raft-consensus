@@ -4,7 +4,7 @@ from threading import Lock
 from . import RaftNode, ServerConfig, ServerService, dynamically_call_procedure
 
 
-class StartupMeta(type):
+class ScriptMeta(type):
     __instances = {}
     __lock: Lock = Lock()
 
@@ -16,11 +16,11 @@ class StartupMeta(type):
         return cls.__instances[cls]
 
 
-class Startup(metaclass=StartupMeta):
+class Script(metaclass=ScriptMeta):
     __node = RaftNode()
     __config = ServerConfig()
 
-    def initialize(self) -> None:
+    def start(self) -> None:
         current_leader_address = self.__node.get_current_leader_address()
 
         if current_leader_address == self.__config.get("SERVER_ADDRESS"):
@@ -39,3 +39,7 @@ class Startup(metaclass=StartupMeta):
                     "apply_membership",
                 )
             )
+
+    def stop(self) -> None:
+        # TODO: Tambahkan membership change untuk menghilangkan node diri sendiri pada leader
+        pass
