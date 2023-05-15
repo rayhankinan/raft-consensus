@@ -28,23 +28,23 @@ class Server(metaclass=ServerMeta):
     )
 
     def start(self, function: Optional[Callable[[], None]] = None) -> None:
+        # Start sequence
+        self.__script.start()
+
         # Execute function if exists
         if function != None:
             function()
-
-        # Start sequence
-        self.__script.start()
 
         # Start service
         self.__server.start()
 
     def stop(self, function: Optional[Callable[[], None]] = None) -> None:
+        # Stop service
+        self.__server.close()
+
         # Execute function if exists
         if function != None:
             function()
-
-        # Stop service
-        self.__server.close()
 
         # Stop sequence
         self.__script.stop()

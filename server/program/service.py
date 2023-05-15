@@ -58,20 +58,23 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         )
 
         self.__node.add_membership_log(new_membership_log)
+
         # TODO: Broadcast add log to all nodes and wait for majority
 
         self.__node.commit_membership_log()
+
         # TODO: Broadcast commit log to all nodes and wait for majority
 
     # Procedure
-    @rpyc.exposed
-    def add_membership_log(self, membership_log: bytes) -> None:
-        self.__node.add_membership_log(deserialize(membership_log))
+    def append_membership_logs(self, raw_term: bytes, raw_membership_logs: bytes) -> None:
+        term: int = deserialize(raw_term)
 
-    # Procedure
-    @rpyc.exposed
-    def commit_membership_log(self) -> None:
-        self.__node.commit_membership_log()
+        if term < self.__node.get_current_term():
+            raise RuntimeError("Term is too old")
+
+        # TODO: Lanjutkan ini
+
+        pass
 
     # Procedure: Test untuk client
     @rpyc.exposed
