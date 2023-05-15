@@ -1,5 +1,4 @@
-from rpyc.utils.server import ThreadedServer
-from program import ServerService, ServerConfig, Script
+from program import ServerService, ServerConfig, Script, Server
 
 
 if __name__ == "__main__":
@@ -15,8 +14,8 @@ if __name__ == "__main__":
     print(f"Starting server on {hostname}:{port}")
 
     # Start service
-    server = ThreadedServer(ServerService, port=port)
+    server = Server()
     server.start()
 
-    # Stop sequence
+    # Stop sequence, when server.stop() is invoked
     script.stop()

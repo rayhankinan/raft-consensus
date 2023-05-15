@@ -3,7 +3,7 @@ import copy
 from threading import Lock
 from sched import scheduler
 from queue import Queue
-from . import MembershipLog, StateLog, State, Address, Storage, ServerConfig, RWLock
+from . import MembershipLog, StateLog, Role, Address, Storage, ServerConfig, RWLock
 
 
 class RaftNodeMeta(type):
@@ -34,8 +34,8 @@ class RaftNode(metaclass=RaftNodeMeta):
         "current_known_address": RWLock(),
         "known_address_commit_index": RWLock(),
         "known_address_last_applied": RWLock(),
+        "current_role": RWLock(),
         "current_leader_address": RWLock(),
-        "current_state": RWLock(),
     }
 
     # Persistent state on all servers
@@ -53,7 +53,7 @@ class RaftNode(metaclass=RaftNodeMeta):
     __known_address_commit_index = 0
     __known_address_last_applied = 0
 
-    __current_state: State = State.FOLLOWER
+    __current_role: Role = Role.FOLLOWER
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
     # Public Method (Read)
@@ -71,6 +71,11 @@ class RaftNode(metaclass=RaftNodeMeta):
         with self.__rw_locks["current_leader_address"].r_locked():
             return self.__current_leader_address
 
+    # Public Method (Read)
+    def get_current_role(self) -> Role:
+        with self.__rw_locks["current_role"].r_locked():
+            return self.__current_role
+
     # Public Method (Read): Test untuk client
     def get_membership_log(self) -> list[MembershipLog]:
         with self.__rw_locks["membership_log"].r_locked():
@@ -78,21 +83,21 @@ class RaftNode(metaclass=RaftNodeMeta):
 
     # Public Method (Write)
     def leader_startup(self) -> None:
-        with self.__rw_locks["current_state"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+        with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
             snapshot_current_state = copy.deepcopy(
-                self.__current_state
+                self.__current_role
             )
             snapshot_current_known_address = copy.deepcopy(
                 self.__current_known_address
             )
 
             try:
-                self.__current_state = State.LEADER
+                self.__current_role = Role.LEADER
                 self.__current_known_address.add(
                     self.__config.get("SERVER_ADDRESS")
                 )
             except:
-                self.__current_state = snapshot_current_state
+                self.__current_role = snapshot_current_state
                 self.__current_known_address = snapshot_current_known_address
                 raise RuntimeError("Failed to initialize")
 

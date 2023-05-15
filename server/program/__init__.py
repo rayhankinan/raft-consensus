@@ -1,5 +1,5 @@
 from .address import *
-from .state import *
+from .role import *
 from .log import *
 from .rwlock import *
 from .config import *
@@ -8,3 +8,4 @@ from .raft import *
 from .utils import *
 from .service import *
 from .script import *
+from .server import *

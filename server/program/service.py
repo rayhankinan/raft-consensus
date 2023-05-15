@@ -1,13 +1,13 @@
 import rpyc
 from typing import Tuple
-from . import RaftNode, MembershipLog, Address, ServerConfig, serialize, deserialize
+from . import RaftNode, MembershipLog, Address, ServerConfig, Role, serialize, deserialize
 
 
 @rpyc.service
 class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     __node: RaftNode
     __config: ServerConfig
-    __conn: rpyc.Connection
+    __conn: rpyc.Connection  # Two Way Communication
 
     def on_connect(self, conn: rpyc.Connection) -> None:
         self.__node = RaftNode()
@@ -25,6 +25,9 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Procedure
     @rpyc.exposed
     def add_server(self, raw_follower_address: bytes) -> None:
+        if self.__node.get_current_role() != Role.LEADER:
+            raise RuntimeError("Not a leader")
+
         follower_addresses: Tuple[Address, ...] = deserialize(
             raw_follower_address
         )

@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class State(Enum):
+class Role(Enum):
     FOLLOWER = "FOLLOWER"
     CANDIDATE = "CANDIDATE"
     LEADER = "LEADER"

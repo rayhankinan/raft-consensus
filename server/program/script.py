@@ -25,22 +25,23 @@ class Script(metaclass=ScriptMeta):
 
         if current_leader_address == self.__config.get("SERVER_ADDRESS"):
             self.__node.leader_startup()
-        else:
-            hostname, port = current_leader_address
-            conn: rpyc.Connection = rpyc.connect(
-                hostname,
-                port,
-                service=ServerService,
-            )
+            return
 
-            current_server_address = (self.__config.get("SERVER_ADDRESS"), )
-            asyncio.run(
-                dynamically_call_procedure(
-                    conn,
-                    "add_server",
-                    serialize(current_server_address),
-                )
+        hostname, port = current_leader_address
+        conn: rpyc.Connection = rpyc.connect(
+            hostname,
+            port,
+            service=ServerService,
+        )
+
+        current_server_address = (self.__config.get("SERVER_ADDRESS"), )
+        asyncio.run(
+            dynamically_call_procedure(
+                conn,
+                "add_server",
+                serialize(current_server_address),
             )
+        )
 
     def stop(self) -> None:
         # TODO: Tambahkan membership change untuk menghilangkan node diri sendiri pada leader
