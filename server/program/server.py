@@ -1,7 +1,7 @@
 from threading import Lock
 from typing import Callable, Optional
 from rpyc.utils.server import ThreadedServer
-from . import ServerConfig, ServerService, Script
+from . import ServerConfig, ServerService, RaftNode
 
 
 class ServerMeta(type):
@@ -19,7 +19,7 @@ class ServerMeta(type):
 class Server(metaclass=ServerMeta):
     # Utility
     __config = ServerConfig()
-    __script = Script()
+    __node = RaftNode()
 
     # State
     __server = ThreadedServer(
@@ -29,7 +29,7 @@ class Server(metaclass=ServerMeta):
 
     def start(self, function: Optional[Callable[[], None]] = None) -> None:
         # Start sequence
-        self.__script.start()
+        self.__node.start()
 
         # Execute function if exists
         if function != None:
@@ -47,4 +47,4 @@ class Server(metaclass=ServerMeta):
             function()
 
         # Stop sequence
-        self.__script.stop()
+        self.__node.stop()
