@@ -3,7 +3,7 @@ from threading import Lock
 from data import Address
 
 
-class ServerConfigMeta(type):
+class ServerConfigMeta(type):  # Thread Safe Singleton
     # Utility
     __instances = {}
     __lock: Lock = Lock()
@@ -16,7 +16,7 @@ class ServerConfigMeta(type):
         return cls.__instances[cls]
 
 
-class ServerConfig(metaclass=ServerConfigMeta):
+class ServerConfig(metaclass=ServerConfigMeta):  # Ini Singleton
     # Utility
     __conf = {
         "SERVER_ADDRESS": Address(os.getenv("SERVER_HOSTNAME", "localhost"), int(os.getenv("SERVER_PORT", "8080"))),

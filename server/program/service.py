@@ -24,7 +24,7 @@ def create_connection(address: Address) -> rpyc.Connection:
     return conn
 
 
-class RaftNodeMeta(type):
+class RaftNodeMeta(type):  # Thread Safe Singleton
     __instances = {}
     __lock: Lock = Lock()
 
@@ -36,7 +36,7 @@ class RaftNodeMeta(type):
         return cls.__instances[cls]
 
 
-class RaftNode(metaclass=RaftNodeMeta):
+class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Utility
     __scheduler: scheduler = scheduler(time.time, time.sleep)
     __storage: Storage = Storage()
@@ -253,8 +253,10 @@ class RaftNode(metaclass=RaftNodeMeta):
                         )
                         raise RuntimeError("Failed to add server")
 
+    # TODO: Implementasikan append_membership_logs
     # Public Method (Write)
     def append_membership_logs(self, term: int, prev_log_index: int, prev_log_term: int, new_membership_logs: list[MembershipLog], leader_commit_index: int) -> None:
+        # Append in Follower
         with self.__rw_locks["current_term"].r_locked():
             if term < self.__current_term:
                 raise RuntimeError("Term is too old")
@@ -302,7 +304,6 @@ class RaftNode(metaclass=RaftNodeMeta):
                                     raise RuntimeError(
                                         "Failed to update known address commit index"
                                     )
-
                     except:
                         self.__membership_log = snapshot_membership_log
                         raise RuntimeError("Failed to append membership logs")
@@ -310,7 +311,83 @@ class RaftNode(metaclass=RaftNodeMeta):
     # TODO: Implementasikan commit_membership_logs
     # Public Method (Write)
     def commit_membership_logs(self) -> None:
-        pass
+        # Commit in Follower
+        with self.__rw_locks["membership_log"].w_locked():
+            snapshot_membership_log = copy.deepcopy(
+                self.__membership_log
+            )
+
+            try:
+                # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
+                self.__storage.save_membership_log(
+                    self.__membership_log
+                )
+
+                # Apply in Follower
+                with self.__rw_locks["known_address_commit_index"].w_locked():
+                    snapshot_known_address_commit_index = copy.deepcopy(
+                        self.__known_address_commit_index
+                    )
+
+                    try:
+                        self.__known_address_commit_index = len(
+                            self.__membership_log
+                        )
+
+                        with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                            snapshot_known_address_last_applied = copy.deepcopy(
+                                self.__known_address_last_applied
+                            )
+                            snapshot_current_known_address = copy.deepcopy(
+                                self.__current_known_address
+                            )
+
+                            try:
+                                while self.__known_address_last_applied < self.__known_address_commit_index:
+                                    last_applied_membership_log = self.__membership_log[
+                                        self.__known_address_last_applied
+                                    ]
+
+                                    match last_applied_membership_log.command:
+                                        case "ADD_NODE":
+                                            entries = {
+                                                address: ServerInfo(
+                                                    len(self.__membership_log),
+                                                    0,
+                                                ) for address in last_applied_membership_log.args
+                                            }
+                                            self.__current_known_address.update(
+                                                entries
+                                            )
+                                        case "REMOVE_NODE":
+                                            for address in last_applied_membership_log.args:
+                                                self.__current_known_address.pop(
+                                                    address,
+                                                    None,
+                                                )
+                                        case _:
+                                            raise RuntimeError(
+                                                "Invalid log command"
+                                            )
+
+                                    self.__known_address_last_applied += 1
+                            except:
+                                self.__known_address_last_applied = snapshot_known_address_last_applied
+                                self.__current_known_address = snapshot_current_known_address
+                                raise RuntimeError(
+                                    "Failed to update known address last applied"
+                                )
+                    except:
+                        self.__known_address_commit_index = snapshot_known_address_commit_index
+                        raise RuntimeError(
+                            "Failed to update known address"
+                        )
+            except:
+                self.__membership_log = snapshot_membership_log
+                self.__storage.save_membership_log(
+                    self.__membership_log
+                )
+                raise RuntimeError("Failed to commit log")
 
 
 @rpyc.service
@@ -355,10 +432,10 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             leader_commit_index,
         )
 
-    # TODO: Masih Implementasikan
+    # TODO: Masih Diimplementasikan
     # Procedure
     def commit_membership_logs(self) -> None:
-        pass
+        self.__node.commit_membership_logs()
 
     # Procedure: Test untuk client
     @rpyc.exposed

@@ -4,7 +4,7 @@ from rpyc.utils.server import ThreadedServer
 from . import ServerConfig, ServerService, RaftNode
 
 
-class ServerMeta(type):
+class ServerMeta(type):  # Thread Safe Singleton
     __instances = {}
     __lock: Lock = Lock()
 
@@ -16,7 +16,7 @@ class ServerMeta(type):
         return cls.__instances[cls]
 
 
-class Server(metaclass=ServerMeta):
+class Server(metaclass=ServerMeta):  # Ini Singleton
     # Utility
     __config = ServerConfig()
     __node = RaftNode()
