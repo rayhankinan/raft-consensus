@@ -170,17 +170,21 @@ class RaftNode(metaclass=RaftNodeMeta):
                     )
 
                     try:
+                        # Append in Leader
                         self.__membership_log.append(
                             new_membership_log
                         )
 
+                        # Append in Follower
                         # TODO: Broadcast append_membership_logs to all nodes and wait for majority
 
+                        # Commit in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                         self.__storage.save_membership_log(
                             self.__membership_log
                         )
 
+                        # Apply in Leader
                         with self.__rw_locks["known_address_commit_index"].w_locked():
                             snapshot_known_address_commit_index = copy.deepcopy(
                                 self.__known_address_commit_index
@@ -228,7 +232,9 @@ class RaftNode(metaclass=RaftNodeMeta):
 
                                             self.__known_address_last_applied += 1
 
+                                        # Commit and Apply in Follower
                                         # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
+
                                     except:
                                         self.__known_address_last_applied = snapshot_known_address_last_applied
                                         self.__current_known_address = snapshot_current_known_address
@@ -259,6 +265,7 @@ class RaftNode(metaclass=RaftNodeMeta):
                     raise RuntimeError("Prev Log Term does not match")
 
                 temporary_length = len(self.__membership_log)
+                temporary_index = prev_log_index
 
                 with self.__rw_locks["membership_log"].r_to_w_locked():
                     snapshot_membership_log = copy.deepcopy(
@@ -266,8 +273,6 @@ class RaftNode(metaclass=RaftNodeMeta):
                     )
 
                     try:
-                        temporary_index = prev_log_index
-
                         for membership_log in new_membership_logs:
                             temporary_index += 1
 
@@ -276,22 +281,27 @@ class RaftNode(metaclass=RaftNodeMeta):
                             else:
                                 self.__membership_log.append(membership_log)
 
-                        with self.__rw_locks["known_address_commit_index"].w_locked():
-                            snapshot_known_address_commit_index = copy.deepcopy(
-                                self.__known_address_commit_index
-                            )
+                        final_length = len(self.__membership_log)
 
-                            try:
-                                final_length = len(self.__membership_log)
-                                self.__known_address_commit_index = min(
-                                    leader_commit_index,
-                                    final_length - 1,
+                        with self.__rw_locks["known_address_last_applied"].r_locked():
+                            if leader_commit_index <= self.__known_address_commit_index:
+                                return
+
+                            with self.__rw_locks["known_address_commit_index"].r_to_w_locked():
+                                snapshot_known_address_commit_index = copy.deepcopy(
+                                    self.__known_address_commit_index
                                 )
-                            except:
-                                self.__known_address_commit_index = snapshot_known_address_commit_index
-                                raise RuntimeError(
-                                    "Failed to update known address commit index"
-                                )
+
+                                try:
+                                    self.__known_address_commit_index = min(
+                                        leader_commit_index,
+                                        final_length,
+                                    )
+                                except:
+                                    self.__known_address_commit_index = snapshot_known_address_commit_index
+                                    raise RuntimeError(
+                                        "Failed to update known address commit index"
+                                    )
 
                     except:
                         self.__membership_log = snapshot_membership_log
