@@ -22,12 +22,12 @@ class Server(metaclass=ServerMeta):  # Ini Singleton
     __node = RaftNode()
 
     # State
-    __server: ThreadedServer
+    __server: ThreadedServer = ThreadedServer(
+        ServerService,
+        port=__config.get("SERVER_ADDRESS").get_port(),
+    )
 
     def start(self, function: Optional[Callable[[], None]]) -> None:
-        # Get Config
-        _, port = self.__config.get("SERVER_ADDRESS")
-        self.__server = ThreadedServer(ServerService, port=port)
         # Server Thread
         server_thread = Thread(target=self.__server.start)
         server_thread.start()

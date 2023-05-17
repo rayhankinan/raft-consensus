@@ -178,17 +178,25 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         # Append in Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
                         # TODO: Implementasikan broadcast tersebut
-                        # asyncio.run(
-                        #     wait_for_majority(
-                        #         *(
-                        #             dynamically_call_procedure(
-                        #                 create_connection(address),
-                        #                 "print_membership_log",
-                        #             )
-                        #             for address, server_info in self.__current_known_address.items()
-                        #         )
-                        #     )
-                        # )
+                        known_follower_addresses = {
+                            address: server_info
+                            for address, server_info in self.__current_known_address.items()
+                            if address != self.__config.get("SERVER_ADDRESS")
+                        }
+
+                        # Hanya broadcast jika ada follower
+                        if len(known_follower_addresses) > 0:
+                            asyncio.run(
+                                wait_for_majority(
+                                    *(
+                                        dynamically_call_procedure(
+                                            create_connection(address),
+                                            "print_membership_log",
+                                        )
+                                        for address, server_info in known_follower_addresses.items()
+                                    )
+                                )
+                            )
 
                         # Commit in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
