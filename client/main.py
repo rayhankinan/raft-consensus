@@ -6,7 +6,7 @@ from program import ClientService, dynamically_call_procedure
 if __name__ == "__main__":
     conn = rpyc.connect(
         "localhost",
-        8080,
+        8085,
         service=ClientService,
     )
 

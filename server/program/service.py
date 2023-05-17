@@ -7,7 +7,7 @@ from sched import scheduler
 from queue import Queue
 from typing import Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
-from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, serialize, deserialize
+from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, wait_for_all, serialize, deserialize
 
 
 def create_connection(address: Address) -> rpyc.Connection:
@@ -143,7 +143,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 "SERVER_ADDRESS"
                                             )
                                             current_server_info = ServerInfo(
-                                                len(self.__membership_log),
+                                                len(self.__membership_log) - 1,
                                                 0,
                                             )
                                             entries = {
@@ -218,39 +218,38 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         # Append in Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
                         # TODO: Implementasikan broadcast tersebut
+                        known_follower_addresses = {
+                            address: server_info
+                            for address, server_info in self.__current_known_address.items()
+                            if address != self.__config.get("SERVER_ADDRESS")
+                        }
 
                         # Hanya broadcast jika ada follower
-                        # known_follower_addresses = {
-                        #     address: server_info
-                        #     for address, server_info in self.__current_known_address.items()
-                        #     if address != self.__config.get("SERVER_ADDRESS")
-                        # }
-
-                        # if len(known_follower_addresses) > 0:
-                        #     asyncio.run(
-                        #         wait_for_majority(
-                        #             *(
-                        #                 dynamically_call_procedure(
-                        #                     create_connection(address),
-                        #                     "append_membership_logs",
-                        #                     serialize(self.__current_term),
-                        #                     serialize(
-                        #                         server_info.next_index - 1
-                        #                     ),
-                        #                     serialize(
-                        #                         self.__membership_log[server_info.next_index - 1].term
-                        #                     ),
-                        #                     serialize(
-                        #                         self.__membership_log[server_info.next_index:]
-                        #                     ),
-                        #                     serialize(
-                        #                         self.__known_address_commit_index
-                        #                     ),
-                        #                 )
-                        #                 for address, server_info in known_follower_addresses.items()
-                        #             )
-                        #         )
-                        #     )
+                        if len(known_follower_addresses) > 0:
+                            asyncio.run(
+                                wait_for_majority(
+                                    *(
+                                        dynamically_call_procedure(
+                                            create_connection(address),
+                                            "append_membership_logs",
+                                            serialize(self.__current_term),
+                                            serialize(
+                                                server_info.next_index - 1
+                                            ),
+                                            serialize(
+                                                self.__membership_log[server_info.next_index - 1].term
+                                            ),
+                                            serialize(
+                                                self.__membership_log[server_info.next_index:]
+                                            ),
+                                            serialize(
+                                                self.__known_address_commit_index
+                                            ),
+                                        )
+                                        for address, server_info in known_follower_addresses.items()
+                                    )
+                                )
+                            )
 
                         # Commit in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
@@ -287,7 +286,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 case "ADD_NODE":
                                                     entries = {
                                                         address: ServerInfo(
-                                                            len(self.__membership_log),
+                                                            len(self.__membership_log) - 1,
                                                             0,
                                                         ) for address in last_applied_membership_log.args
                                                     }
@@ -309,6 +308,70 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         # Commit and Apply in Follower
                                         # Broadcast commit_membership_logs to all nodes and wait for majority
                                         # TODO: Implementasikan broadcast tersebut
+                                        new_known_follower_addresses = {
+                                            address: server_info
+                                            for address, server_info in self.__current_known_address.items()
+                                            if address != self.__config.get("SERVER_ADDRESS")
+                                        }
+
+                                        # Hanya broadcast jika ada follower
+                                        if len(new_known_follower_addresses) > 0:
+                                            asyncio.run(
+                                                wait_for_majority(
+                                                    *(
+                                                        dynamically_call_procedure(
+                                                            create_connection(
+                                                                address
+                                                            ),
+                                                            "commit_membership_logs",
+                                                        )
+                                                        for address, _ in new_known_follower_addresses.items()
+                                                    )
+                                                )
+                                            )
+
+                                        # Append in new Follower
+                                        asyncio.run(
+                                            wait_for_all(
+                                                *(
+                                                    dynamically_call_procedure(
+                                                        create_connection(
+                                                            follower_address
+                                                        ),
+                                                        "append_membership_logs",
+                                                        serialize(
+                                                            self.__current_term
+                                                        ),
+                                                        serialize(-1),
+                                                        serialize(
+                                                            self.__current_term
+                                                        ),
+                                                        serialize(
+                                                            self.__membership_log[:]
+                                                        ),
+                                                        serialize(
+                                                            self.__known_address_commit_index
+                                                        ),
+                                                    )
+                                                    for follower_address in follower_addresses
+                                                )
+                                            )
+                                        )
+
+                                        # Commit in new Follower
+                                        asyncio.run(
+                                            wait_for_all(
+                                                *(
+                                                    dynamically_call_procedure(
+                                                        create_connection(
+                                                            follower_address
+                                                        ),
+                                                        "commit_membership_logs",
+                                                    )
+                                                    for follower_address in follower_addresses
+                                                )
+                                            )
+                                        )
 
                                     except:
                                         self.__known_address_last_applied = snapshot_known_address_last_applied
@@ -337,9 +400,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Term is too old")
 
             with self.__rw_locks["membership_log"].r_locked():
-                # NOTE: Meledug di sini
-                print("Index:", prev_log_index)
-                if self.__membership_log[prev_log_index].term != prev_log_term:
+                if prev_log_index > 0 and self.__membership_log[prev_log_index].term != prev_log_term:
                     # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
                     # Dikarenakan byzantine leader, maka follower harus mengecek apakah prev_log_index yang dikirimkan oleh leader valid
                     raise RuntimeError("Prev Log Term does not match")
@@ -430,7 +491,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         case "ADD_NODE":
                                             entries = {
                                                 address: ServerInfo(
-                                                    len(self.__membership_log),
+                                                    len(self.__membership_log) - 1,
                                                     0,
                                                 ) for address in last_applied_membership_log.args
                                             }
