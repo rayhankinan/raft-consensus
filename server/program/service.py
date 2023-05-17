@@ -215,16 +215,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             new_membership_log
                         )
 
-                        # Append in Follower
+                        # Append in Current Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
-                        # TODO: Implementasikan broadcast tersebut
                         known_follower_addresses = {
                             address: server_info
                             for address, server_info in self.__current_known_address.items()
                             if address != self.__config.get("SERVER_ADDRESS")
                         }
 
-                        # Hanya broadcast jika ada follower
+                        # Hanya broadcast jika ada Current Follower
                         if len(known_follower_addresses) > 0:
                             asyncio.run(
                                 wait_for_majority(
@@ -251,13 +250,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                 )
                             )
 
-                        # Commit in Leader
+                        # Commit and Apply in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                         self.__storage.save_membership_log(
                             self.__membership_log
                         )
 
-                        # Apply in Leader
                         with self.__rw_locks["known_address_commit_index"].w_locked():
                             snapshot_known_address_commit_index = copy.deepcopy(
                                 self.__known_address_commit_index
@@ -305,9 +303,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                                             self.__known_address_last_applied += 1
 
-                                        # Commit and Apply in Follower
+                                        # Commit and Apply in Current Follower
                                         # Broadcast commit_membership_logs to all nodes and wait for majority
-                                        # TODO: Implementasikan broadcast tersebut
                                         new_known_follower_addresses = {
                                             address: server_info
                                             for address, server_info in self.__current_known_address.items()
@@ -330,7 +327,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 )
                                             )
 
-                                        # Append in new Follower
+                                        # Append in New Follower
                                         asyncio.run(
                                             wait_for_all(
                                                 *(
@@ -358,7 +355,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             )
                                         )
 
-                                        # Commit in new Follower
+                                        # Commit in New Follower
                                         asyncio.run(
                                             wait_for_all(
                                                 *(
@@ -391,7 +388,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         )
                         raise RuntimeError("Failed to add server")
 
-    # TODO: Implementasikan append_membership_logs
     # Public Method (Write)
     def append_membership_logs(self, term: int, prev_log_index: int, prev_log_term: int, new_membership_logs: list[MembershipLog], leader_commit_index: int) -> None:
         # Append in Follower
@@ -447,7 +443,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         self.__membership_log = snapshot_membership_log
                         raise RuntimeError("Failed to append membership logs")
 
-    # TODO: Implementasikan commit_membership_logs
     # Public Method (Write)
     def commit_membership_logs(self) -> None:
         # Commit in Follower
@@ -552,7 +547,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
         self.__node.add_server(follower_addresses)
 
-    # TODO: Masih Untested
     # Procedure
     @rpyc.exposed
     def append_membership_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_membership_logs: bytes, raw_leader_commit_index: bytes) -> None:
@@ -572,7 +566,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             leader_commit_index,
         )
 
-    # TODO: Masih Untested
     # Procedure
     @rpyc.exposed
     def commit_membership_logs(self) -> None:
