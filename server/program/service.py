@@ -7,7 +7,7 @@ from sched import scheduler
 from queue import Queue
 from typing import Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
-from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_all, serialize, deserialize
+from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, serialize, deserialize
 
 
 def create_connection(address: Address) -> rpyc.Connection:

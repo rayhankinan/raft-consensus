@@ -21,6 +21,31 @@ async def wait_for_all(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Opti
     return await asyncio.gather(*args)
 
 
+async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
+    length = len(args)
+    threshold = length // 2 + 1
+
+    completed = 0
+    results: list[Optional[bytes]] = []
+
+    # Membuat list of task
+    tasks = [asyncio.create_task(arg) for arg in args]
+
+    while completed < threshold:
+        # Menunggu salah satu task selesai
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+        for task in done:
+            results.append(task.result())
+            completed += 1
+
+        # Hilangkan task yang sudah selesai
+
+        tasks = [task for task in tasks if not task.done()]
+
+    return results
+
+
 def serialize(value: Any) -> bytes:
     return codecs.encode(pickle.dumps(value), "base64")
 
