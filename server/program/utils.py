@@ -40,7 +40,6 @@ async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list
             completed += 1
 
         # Hilangkan task yang sudah selesai
-
         tasks = [task for task in tasks if not task.done()]
 
     return results

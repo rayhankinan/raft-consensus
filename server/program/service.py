@@ -7,7 +7,7 @@ from sched import scheduler
 from queue import Queue
 from typing import Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
-from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, serialize, deserialize
+from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, serialize, deserialize
 
 
 def create_connection(address: Address) -> rpyc.Connection:
@@ -178,6 +178,17 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         # Append in Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
                         # TODO: Implementasikan broadcast tersebut
+                        # asyncio.run(
+                        #     wait_for_majority(
+                        #         *(
+                        #             dynamically_call_procedure(
+                        #                 create_connection(address),
+                        #                 "print_membership_log",
+                        #             )
+                        #             for address, server_info in self.__current_known_address.items()
+                        #         )
+                        #     )
+                        # )
 
                         # Commit in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change

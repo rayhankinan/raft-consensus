@@ -1,4 +1,4 @@
-from threading import Lock
+from threading import Thread, Lock
 from typing import Callable, Optional
 from rpyc.utils.server import ThreadedServer
 from . import ServerConfig, ServerService, RaftNode
@@ -22,12 +22,16 @@ class Server(metaclass=ServerMeta):  # Ini Singleton
     __node = RaftNode()
 
     # State
-    __server = ThreadedServer(
-        ServerService,
-        port=__config.get("SERVER_ADDRESS").port,
-    )
+    __server: ThreadedServer
 
-    def start(self, function: Optional[Callable[[], None]] = None) -> None:
+    def start(self, function: Optional[Callable[[], None]]) -> None:
+        # Get Config
+        _, port = self.__config.get("SERVER_ADDRESS")
+        self.__server = ThreadedServer(ServerService, port=port)
+        # Server Thread
+        server_thread = Thread(target=self.__server.start)
+        server_thread.start()
+
         # Start sequence
         self.__node.start()
 
@@ -35,16 +39,5 @@ class Server(metaclass=ServerMeta):  # Ini Singleton
         if function != None:
             function()
 
-        # Start service
-        self.__server.start()
-
-    def stop(self, function: Optional[Callable[[], None]] = None) -> None:
-        # Stop service
-        self.__server.close()
-
-        # Execute function if exists
-        if function != None:
-            function()
-
-        # Stop sequence
-        self.__node.stop()
+        # Join server thread
+        server_thread.join()
