@@ -217,170 +217,171 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                         # Append in Current Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
-                        known_follower_addresses = {
-                            address: server_info
-                            for address, server_info in self.__current_known_address.items()
-                            if address != self.__config.get("SERVER_ADDRESS")
-                        }
+                        with self.__rw_locks["current_known_address"].r_locked():
+                            known_follower_addresses = {
+                                address: server_info
+                                for address, server_info in self.__current_known_address.items()
+                                if address != self.__config.get("SERVER_ADDRESS")
+                            }
 
-                        # Hanya broadcast jika ada Current Follower
-                        if len(known_follower_addresses) > 0:
-                            asyncio.run(
-                                wait_for_majority(
-                                    *(
-                                        dynamically_call_procedure(
-                                            create_connection(address),
-                                            "append_membership_logs",
-                                            serialize(self.__current_term),
-                                            serialize(
-                                                server_info.next_index - 1
-                                            ),
-                                            serialize(
-                                                self.__membership_log[server_info.next_index - 1].term
-                                            ),
-                                            serialize(
-                                                self.__membership_log[server_info.next_index:]
-                                            ),
-                                            serialize(
-                                                self.__known_address_commit_index
-                                            ),
+                            # Hanya broadcast jika ada Current Follower
+                            if len(known_follower_addresses) > 0:
+                                asyncio.run(
+                                    wait_for_majority(
+                                        *(
+                                            dynamically_call_procedure(
+                                                create_connection(address),
+                                                "append_membership_logs",
+                                                serialize(self.__current_term),
+                                                serialize(
+                                                    server_info.next_index - 1
+                                                ),
+                                                serialize(
+                                                    self.__membership_log[server_info.next_index - 1].term
+                                                ),
+                                                serialize(
+                                                    self.__membership_log[server_info.next_index:]
+                                                ),
+                                                serialize(
+                                                    self.__known_address_commit_index
+                                                ),
+                                            )
+                                            for address, server_info in known_follower_addresses.items()
                                         )
-                                        for address, server_info in known_follower_addresses.items()
                                     )
                                 )
+
+                            # Commit and Apply in Leader
+                            # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
+                            self.__storage.save_membership_log(
+                                self.__membership_log
                             )
 
-                        # Commit and Apply in Leader
-                        # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
-                        self.__storage.save_membership_log(
-                            self.__membership_log
-                        )
-
-                        with self.__rw_locks["known_address_commit_index"].w_locked():
-                            snapshot_known_address_commit_index = copy.deepcopy(
-                                self.__known_address_commit_index
-                            )
-
-                            try:
-                                self.__known_address_commit_index = len(
-                                    self.__membership_log
+                            with self.__rw_locks["known_address_commit_index"].w_locked():
+                                snapshot_known_address_commit_index = copy.deepcopy(
+                                    self.__known_address_commit_index
                                 )
 
-                                with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
-                                    snapshot_known_address_last_applied = copy.deepcopy(
-                                        self.__known_address_last_applied
-                                    )
-                                    snapshot_current_known_address = copy.deepcopy(
-                                        self.__current_known_address
+                                try:
+                                    self.__known_address_commit_index = len(
+                                        self.__membership_log
                                     )
 
-                                    try:
-                                        while self.__known_address_last_applied < self.__known_address_commit_index:
-                                            last_applied_membership_log = self.__membership_log[
-                                                self.__known_address_last_applied
-                                            ]
+                                    with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].r_to_w_locked():
+                                        snapshot_known_address_last_applied = copy.deepcopy(
+                                            self.__known_address_last_applied
+                                        )
+                                        snapshot_current_known_address = copy.deepcopy(
+                                            self.__current_known_address
+                                        )
 
-                                            match last_applied_membership_log.command:
-                                                case "ADD_NODE":
-                                                    entries = {
-                                                        address: ServerInfo(
-                                                            len(self.__membership_log) - 1,
-                                                            0,
-                                                        ) for address in last_applied_membership_log.args
-                                                    }
-                                                    self.__current_known_address.update(
-                                                        entries
-                                                    )
-                                                case "REMOVE_NODE":
-                                                    for address in last_applied_membership_log.args:
-                                                        self.__current_known_address.pop(
-                                                            address,
-                                                            None,
+                                        try:
+                                            while self.__known_address_last_applied < self.__known_address_commit_index:
+                                                last_applied_membership_log = self.__membership_log[
+                                                    self.__known_address_last_applied
+                                                ]
+
+                                                match last_applied_membership_log.command:
+                                                    case "ADD_NODE":
+                                                        entries = {
+                                                            address: ServerInfo(
+                                                                len(self.__membership_log) - 1,
+                                                                0,
+                                                            ) for address in last_applied_membership_log.args
+                                                        }
+                                                        self.__current_known_address.update(
+                                                            entries
                                                         )
-                                                case _:
-                                                    raise RuntimeError(
-                                                        "Invalid log command")
+                                                    case "REMOVE_NODE":
+                                                        for address in last_applied_membership_log.args:
+                                                            self.__current_known_address.pop(
+                                                                address,
+                                                                None,
+                                                            )
+                                                    case _:
+                                                        raise RuntimeError(
+                                                            "Invalid log command")
 
-                                            self.__known_address_last_applied += 1
+                                                self.__known_address_last_applied += 1
 
-                                        # Commit and Apply in Current Follower
-                                        # Broadcast commit_membership_logs to all nodes and wait for majority
-                                        new_known_follower_addresses = {
-                                            address: server_info
-                                            for address, server_info in self.__current_known_address.items()
-                                            if address != self.__config.get("SERVER_ADDRESS")
-                                        }
+                                            # Commit and Apply in Current Follower
+                                            # Broadcast commit_membership_logs to all nodes and wait for majority
+                                            new_known_follower_addresses = {
+                                                address: server_info
+                                                for address, server_info in self.__current_known_address.items()
+                                                if address != self.__config.get("SERVER_ADDRESS")
+                                            }
 
-                                        # Hanya broadcast jika ada follower
-                                        if len(new_known_follower_addresses) > 0:
+                                            # Hanya broadcast jika ada follower
+                                            if len(new_known_follower_addresses) > 0:
+                                                asyncio.run(
+                                                    wait_for_majority(
+                                                        *(
+                                                            dynamically_call_procedure(
+                                                                create_connection(
+                                                                    address
+                                                                ),
+                                                                "commit_membership_logs",
+                                                            )
+                                                            for address, _ in new_known_follower_addresses.items()
+                                                        )
+                                                    )
+                                                )
+
+                                            # Append in New Follower
                                             asyncio.run(
-                                                wait_for_majority(
+                                                wait_for_all(
                                                     *(
                                                         dynamically_call_procedure(
                                                             create_connection(
-                                                                address
+                                                                follower_address
+                                                            ),
+                                                            "append_membership_logs",
+                                                            serialize(
+                                                                self.__current_term
+                                                            ),
+                                                            serialize(-1),
+                                                            serialize(
+                                                                self.__current_term
+                                                            ),
+                                                            serialize(
+                                                                self.__membership_log[:]
+                                                            ),
+                                                            serialize(
+                                                                self.__known_address_commit_index
+                                                            ),
+                                                        )
+                                                        for follower_address in follower_addresses
+                                                    )
+                                                )
+                                            )
+
+                                            # Commit in New Follower
+                                            asyncio.run(
+                                                wait_for_all(
+                                                    *(
+                                                        dynamically_call_procedure(
+                                                            create_connection(
+                                                                follower_address
                                                             ),
                                                             "commit_membership_logs",
                                                         )
-                                                        for address, _ in new_known_follower_addresses.items()
+                                                        for follower_address in follower_addresses
                                                     )
                                                 )
                                             )
 
-                                        # Append in New Follower
-                                        asyncio.run(
-                                            wait_for_all(
-                                                *(
-                                                    dynamically_call_procedure(
-                                                        create_connection(
-                                                            follower_address
-                                                        ),
-                                                        "append_membership_logs",
-                                                        serialize(
-                                                            self.__current_term
-                                                        ),
-                                                        serialize(-1),
-                                                        serialize(
-                                                            self.__current_term
-                                                        ),
-                                                        serialize(
-                                                            self.__membership_log[:]
-                                                        ),
-                                                        serialize(
-                                                            self.__known_address_commit_index
-                                                        ),
-                                                    )
-                                                    for follower_address in follower_addresses
-                                                )
+                                        except:
+                                            self.__known_address_last_applied = snapshot_known_address_last_applied
+                                            self.__current_known_address = snapshot_current_known_address
+                                            raise RuntimeError(
+                                                "Failed to update known address last applied"
                                             )
-                                        )
-
-                                        # Commit in New Follower
-                                        asyncio.run(
-                                            wait_for_all(
-                                                *(
-                                                    dynamically_call_procedure(
-                                                        create_connection(
-                                                            follower_address
-                                                        ),
-                                                        "commit_membership_logs",
-                                                    )
-                                                    for follower_address in follower_addresses
-                                                )
-                                            )
-                                        )
-
-                                    except:
-                                        self.__known_address_last_applied = snapshot_known_address_last_applied
-                                        self.__current_known_address = snapshot_current_known_address
-                                        raise RuntimeError(
-                                            "Failed to update known address last applied"
-                                        )
-                            except:
-                                self.__known_address_commit_index = snapshot_known_address_commit_index
-                                raise RuntimeError(
-                                    "Failed to update known address"
-                                )
+                                except:
+                                    self.__known_address_commit_index = snapshot_known_address_commit_index
+                                    raise RuntimeError(
+                                        "Failed to update known address"
+                                    )
                     except:
                         self.__membership_log = snapshot_membership_log
                         self.__storage.save_membership_log(
