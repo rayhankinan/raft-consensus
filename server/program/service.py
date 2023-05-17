@@ -111,6 +111,66 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 try:
                     self.__current_role = Role.LEADER
 
+                    with self.__rw_locks["membership_log"].w_locked():
+                        snapshot_membership_log = copy.deepcopy(
+                            self.__membership_log
+                        )
+
+                        try:
+                            new_membership_log = MembershipLog(
+                                self.__current_term,
+                                "ADD_NODE",
+                                (self.__config.get("SERVER_ADDRESS"),)
+                            )
+                            self.__membership_log.append(new_membership_log)
+
+                            with self.__rw_locks["known_address_commit_index"].w_locked():
+                                snapshot_known_address_commit_index = copy.deepcopy(
+                                    self.__known_address_commit_index
+                                )
+
+                                try:
+                                    with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                                        snapshot_known_address_last_applied = copy.deepcopy(
+                                            self.__known_address_last_applied
+                                        )
+                                        snapshot_current_known_address = copy.deepcopy(
+                                            self.__current_known_address
+                                        )
+
+                                        try:
+                                            current_address = self.__config.get(
+                                                "SERVER_ADDRESS"
+                                            )
+                                            current_server_info = ServerInfo(
+                                                len(self.__membership_log),
+                                                0,
+                                            )
+                                            entries = {
+                                                current_address: current_server_info
+                                            }
+
+                                            self.__current_known_address.update(
+                                                entries
+                                            )
+
+                                            self.__known_address_last_applied += 1
+                                        except:
+                                            self.__known_address_last_applied = snapshot_known_address_last_applied
+                                            self.__current_known_address = snapshot_current_known_address
+                                            raise RuntimeError(
+                                                "Failed to update current known address"
+                                            )
+                                except:
+                                    self.__known_address_commit_index = snapshot_known_address_commit_index
+                                    raise RuntimeError(
+                                        "Failed to update known address"
+                                    )
+
+                        except:
+                            self.__membership_log = snapshot_membership_log
+                            raise RuntimeError("Failed to add log")
+
                 except:
                     self.__current_role = snapshot_current_role
                     raise RuntimeError("Failed to initialize")
@@ -160,18 +220,37 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         # TODO: Implementasikan broadcast tersebut
 
                         # Hanya broadcast jika ada follower
-                        if len(self.__current_known_address) > 0:
-                            asyncio.run(
-                                wait_for_majority(
-                                    *(
-                                        dynamically_call_procedure(
-                                            create_connection(address),
-                                            "print_membership_log",
-                                        )
-                                        for address, server_info in self.__current_known_address.items()
-                                    )
-                                )
-                            )
+                        # known_follower_addresses = {
+                        #     address: server_info
+                        #     for address, server_info in self.__current_known_address.items()
+                        #     if address != self.__config.get("SERVER_ADDRESS")
+                        # }
+
+                        # if len(known_follower_addresses) > 0:
+                        #     asyncio.run(
+                        #         wait_for_majority(
+                        #             *(
+                        #                 dynamically_call_procedure(
+                        #                     create_connection(address),
+                        #                     "append_membership_logs",
+                        #                     serialize(self.__current_term),
+                        #                     serialize(
+                        #                         server_info.next_index - 1
+                        #                     ),
+                        #                     serialize(
+                        #                         self.__membership_log[server_info.next_index - 1].term
+                        #                     ),
+                        #                     serialize(
+                        #                         self.__membership_log[server_info.next_index:]
+                        #                     ),
+                        #                     serialize(
+                        #                         self.__known_address_commit_index
+                        #                     ),
+                        #                 )
+                        #                 for address, server_info in known_follower_addresses.items()
+                        #             )
+                        #         )
+                        #     )
 
                         # Commit in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
@@ -258,6 +337,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Term is too old")
 
             with self.__rw_locks["membership_log"].r_locked():
+                # NOTE: Meledug di sini
+                print("Index:", prev_log_index)
                 if self.__membership_log[prev_log_index].term != prev_log_term:
                     # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
                     # Dikarenakan byzantine leader, maka follower harus mengecek apakah prev_log_index yang dikirimkan oleh leader valid
@@ -412,6 +493,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
     # TODO: Masih Untested
     # Procedure
+    @rpyc.exposed
     def append_membership_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_membership_logs: bytes, raw_leader_commit_index: bytes) -> None:
         term: int = deserialize(raw_term)
         prev_log_index: int = deserialize(raw_prev_log_index)
@@ -431,6 +513,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
     # TODO: Masih Untested
     # Procedure
+    @rpyc.exposed
     def commit_membership_logs(self) -> None:
         # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         self.__node.commit_membership_logs()
