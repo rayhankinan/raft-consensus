@@ -217,7 +217,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                         # Append in Current Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
-                        with self.__rw_locks["current_known_address"].r_locked():
+                        with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["known_address_commit_index"].r_locked():
                             known_follower_addresses = {
                                 address: server_info
                                 for address, server_info in self.__current_known_address.items()
@@ -251,13 +251,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                     )
                                 )
 
+                                # TODO: Update nilai next_index
+
                             # Commit and Apply in Leader
                             # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                             self.__storage.save_membership_log(
                                 self.__membership_log
                             )
 
-                            with self.__rw_locks["known_address_commit_index"].w_locked():
+                            with self.__rw_locks["known_address_commit_index"].r_to_w_locked():
                                 snapshot_known_address_commit_index = copy.deepcopy(
                                     self.__known_address_commit_index
                                 )
@@ -327,6 +329,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
                                                     )
                                                 )
+
+                                                # TODO: Update nilai match_index
 
                                             # Append in New Follower
                                             asyncio.run(
