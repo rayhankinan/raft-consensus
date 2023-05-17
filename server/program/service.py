@@ -116,21 +116,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                     try:
                         self.__current_role = Role.LEADER
-                        address = self.__config.get("SERVER_ADDRESS")
 
-                        with self.__rw_locks["current_known_address"].w_locked():
-                            snapshot_current_known_address = copy.deepcopy(
-                                self.__current_known_address
-                            )
-
-                            try:
-                                self.__current_known_address.clear()
-                                self.__current_known_address[address] = server_info
-                            except:
-                                self.__current_known_address = snapshot_current_known_address
-                                raise RuntimeError(
-                                    "Failed to update current known address"
-                                )
                     except:
                         self.__current_role = snapshot_current_role
                         raise RuntimeError("Failed to initialize")
@@ -178,14 +164,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         # Append in Follower
                         # Broadcast append_membership_logs to all nodes and wait for majority
                         # TODO: Implementasikan broadcast tersebut
-                        known_follower_addresses = {
-                            address: server_info
-                            for address, server_info in self.__current_known_address.items()
-                            if address != self.__config.get("SERVER_ADDRESS")
-                        }
 
                         # Hanya broadcast jika ada follower
-                        if len(known_follower_addresses) > 0:
+                        if len(self.__current_known_address) > 0:
                             asyncio.run(
                                 wait_for_majority(
                                     *(
@@ -193,7 +174,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             create_connection(address),
                                             "print_membership_log",
                                         )
-                                        for address, server_info in known_follower_addresses.items()
+                                        for address, server_info in self.__current_known_address.items()
                                     )
                                 )
                             )
