@@ -103,23 +103,17 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 )
                 return
 
-            with self.__rw_locks["membership_log"].r_locked():
-                server_info = ServerInfo(
-                    len(self.__membership_log),
-                    0,
+            with self.__rw_locks["current_role"].w_locked():
+                snapshot_current_role = copy.deepcopy(
+                    self.__current_role
                 )
 
-                with self.__rw_locks["current_role"].w_locked():
-                    snapshot_current_role = copy.deepcopy(
-                        self.__current_role
-                    )
+                try:
+                    self.__current_role = Role.LEADER
 
-                    try:
-                        self.__current_role = Role.LEADER
-
-                    except:
-                        self.__current_role = snapshot_current_role
-                        raise RuntimeError("Failed to initialize")
+                except:
+                    self.__current_role = snapshot_current_role
+                    raise RuntimeError("Failed to initialize")
 
     # TODO: Implementasikan penghapusan node dari cluster
     # Public Method (Write)
