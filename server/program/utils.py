@@ -2,7 +2,7 @@ import rpyc
 import asyncio
 import codecs
 import pickle
-from typing import Callable, Any, Optional
+from typing import Callable, Optional, Coroutine, Any
 
 
 async def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *args: bytes, **kwargs: bytes) -> Optional[bytes]:
@@ -12,9 +12,13 @@ async def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *arg
     if not callable(getattr(conn.root, func_name)):
         raise RuntimeError(f"Function {func_name} is not callable")
 
-    func: Callable[..., Any] = getattr(conn.root, func_name)
+    func: Callable[..., Optional[bytes]] = getattr(conn.root, func_name)
 
     return await asyncio.to_thread(func, *args, **kwargs)
+
+
+async def wait_for_all(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
+    return await asyncio.gather(*args)
 
 
 def serialize(value: Any) -> bytes:

@@ -7,7 +7,7 @@ from sched import scheduler
 from queue import Queue
 from typing import Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
-from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, serialize, deserialize
+from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_all, serialize, deserialize
 
 
 def create_connection(address: Address) -> rpyc.Connection:
@@ -176,7 +176,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         )
 
                         # Append in Follower
-                        # TODO: Broadcast append_membership_logs to all nodes and wait for majority
+                        # Broadcast append_membership_logs to all nodes and wait for majority
+                        # TODO: Implementasikan broadcast tersebut
 
                         # Commit in Leader
                         # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
@@ -233,7 +234,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             self.__known_address_last_applied += 1
 
                                         # Commit and Apply in Follower
-                                        # TODO: Broadcast commit_membership_logs to all nodes and wait for majority
+                                        # Broadcast commit_membership_logs to all nodes and wait for majority
+                                        # TODO: Implementasikan broadcast tersebut
 
                                     except:
                                         self.__known_address_last_applied = snapshot_known_address_last_applied
@@ -264,6 +266,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             with self.__rw_locks["membership_log"].r_locked():
                 if self.__membership_log[prev_log_index].term != prev_log_term:
                     # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
+                    # Dikarenakan byzantine leader, maka follower harus mengecek apakah prev_log_index yang dikirimkan oleh leader valid
                     raise RuntimeError("Prev Log Term does not match")
 
                 temporary_length = len(self.__membership_log)
@@ -432,9 +435,10 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             leader_commit_index,
         )
 
-    # TODO: Masih Diimplementasikan
+    # TODO: Masih Untested
     # Procedure
     def commit_membership_logs(self) -> None:
+        # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         self.__node.commit_membership_logs()
 
     # Procedure: Test untuk client
