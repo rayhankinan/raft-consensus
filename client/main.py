@@ -47,6 +47,12 @@ if __name__ == "__main__":
                 dynamically_call_procedure(conn_3, "print_known_address"),
                 dynamically_call_procedure(conn_4, "print_known_address"),
                 dynamically_call_procedure(conn_5, "print_known_address"),
+                dynamically_call_procedure(conn_0, "print_node"),
+                dynamically_call_procedure(conn_1, "print_node"),
+                dynamically_call_procedure(conn_2, "print_node"),
+                dynamically_call_procedure(conn_3, "print_node"),
+                dynamically_call_procedure(conn_4, "print_node"),
+                dynamically_call_procedure(conn_5, "print_node"),
             )
         )
     )
