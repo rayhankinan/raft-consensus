@@ -582,7 +582,133 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             )
                         )
                     return
-            # TODO: implement log replication
+            with self.__rw_locks["current_term"].r_locked():
+                new_state_log = StateLog(
+                    self.__current_term,
+                    command,
+                    message,
+                )
+
+                with self.__rw_locks["state_log"].w_locked():
+                    snapshot_state_log = copy.deepcopy(
+                        self.__state_log
+                    )
+
+                    try:
+                        self.__state_log.append(new_state_log)
+
+                        with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
+                            known_follower_addresses = {
+                                address: server_info
+                                for address, server_info in self.__current_known_address.items()
+                                if address != self.__config.get("SERVER_ADDRESS")
+                            }
+
+                            if len(known_follower_addresses) > 0:
+                                # asyncio.run(
+                                #     wait_for_majority(
+                                #         *(
+                                #             dynamically_call_procedure(
+                                #                 create_connection(address),
+                                #                 "append_state_logs",
+                                #                 serialize(self.__current_term),
+                                #                 serialize(
+                                #                     server_info.next_index - 1
+                                #                 ),
+                                #                 serialize(
+                                #                     self.__state_log[server_info.next_index - 1].term
+                                #                 ),
+                                #                 serialize(
+                                #                     self.__state_log[server_info.next_index:]
+                                #                 ),
+                                #                 serialize(
+                                #                     self.__state_commit_index
+                                #                 ),
+                                #             )
+                                #             for address, server_info in known_follower_addresses.items()
+                                #         )
+                                #     )
+                                # )
+                                pass
+
+                                # TODO: Update nilai next_index (bisa pake lambda function)
+
+                            # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
+                            self.__storage.save_state_log(
+                                self.__state_log
+                            )
+
+                            with self.__rw_locks["state_commit_index"].r_to_w_locked():
+                                snapshot_state_commit_index = copy.deepcopy(
+                                    self.__state_commit_index
+                                )
+
+                                try:
+                                    self.__state_commit_index = len(
+                                        self.__state_log
+                                    )
+
+                                    with self.__rw_locks["state_last_applied"].w_locked(), self.__rw_locks["state_machine"].w_locked():
+                                        snapshot_state_last_applied = copy.deepcopy(
+                                            self.__state_last_applied
+                                        )
+                                        snapshot_state_machine = copy.deepcopy(
+                                            self.__state_machine
+                                        )
+
+                                        try:
+                                            while self.__state_last_applied < self.__state_commit_index:
+                                                last_applied_state_log = self.__state_log[
+                                                    self.__state_last_applied
+                                                ]
+
+                                                match last_applied_state_log.command:
+                                                    case "ENQUEUE":
+                                                        for msg in last_applied_state_log.args:
+                                                            self.__state_machine.put(
+                                                                msg
+                                                            )
+                                                    case "DEQUEUE":
+                                                        self.__state_machine.get()
+                                                    case _:
+                                                        raise RuntimeError(
+                                                            "Invalid log command")
+
+                                                self.__state_last_applied += 1
+
+                                            # Commit and Apply in Current Follower
+                                            # Broadcast commit_state_logs to all nodes and wait for majority
+                                            if len(known_follower_addresses) > 0:
+                                                # asyncio.run(
+                                                #     wait_for_majority(
+                                                #         *(
+                                                #             dynamically_call_procedure(
+                                                #                 create_connection(
+                                                #                     address
+                                                #                 ),
+                                                #                 "commit_state_logs",
+                                                #             )
+                                                #             for address, _ in known_follower_addresses.items()
+                                                #         )
+                                                #     )
+                                                # )
+                                                pass
+                                                # TODO: Update nilai match_index (bisa pake lambda function)
+
+                                        except:
+                                            self.__state_last_applied = snapshot_state_last_applied
+                                            self.__state_machine = snapshot_state_machine
+                                            raise RuntimeError(
+                                                "Failed to update state machine"
+                                            )
+                                except:
+                                    self.__state_commit_index = snapshot_state_commit_index
+                                    raise RuntimeError(
+                                        "Failed to update state commit index"
+                                    )
+                    except:
+                        self.__state_log = snapshot_state_log
+                        raise RuntimeError("Failed to append state log")
 
 
 @rpyc.service
