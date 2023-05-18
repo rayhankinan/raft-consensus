@@ -110,6 +110,26 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def get_leader_address(self) -> Address:
         with self.__rw_locks["current_leader_address"].r_locked():
             return self.__current_leader_address
+        
+    # Public Method (Read): Testing untuk client
+    def get_state_machine(self) -> Queue[str]:
+        with self.__rw_locks["state_machine"].r_locked():
+            return self.__state_machine
+    
+    # Public Method (Read): Testing untuk client
+    def get_state_commit_index(self) -> int:
+        with self.__rw_locks["state_commit_index"].r_locked():
+            return self.__state_commit_index
+        
+    # Public Method (Read): Testing untuk client
+    def get_state_last_applied(self) -> int:
+        with self.__rw_locks["state_last_applied"].r_locked():
+            return self.__state_last_applied
+    
+    # Public Method (Read): Testing untuk client
+    def get_state_log(self) -> list[StateLog]:
+        with self.__rw_locks["state_log"].r_locked():
+            return self.__state_log
 
     # Public Method (Write)
     def start(self) -> None:
@@ -174,6 +194,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             )
                                             current_server_info = ServerInfo(
                                                 len(self.__membership_log) - 1,
+                                                0,
+                                                len(self.__state_log),
                                                 0,
                                             )
                                             entries = {
@@ -317,6 +339,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         entries = {
                                                             address: ServerInfo(
                                                                 len(self.__membership_log) - 1,
+                                                                0,
+                                                                len(self.__state_log),
                                                                 0,
                                                             ) for address in last_applied_membership_log.args
                                                         }
@@ -522,6 +546,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 address: ServerInfo(
                                                     len(self.__membership_log) - 1,
                                                     0,
+                                                    len(self.__state_log),
+                                                    0,
                                                 ) for address in last_applied_membership_log.args
                                             }
                                             self.__current_known_address.update(
@@ -561,7 +587,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # execute enqueue or dequeue
     def add_state(self, command: Literal["ENQUEUE", "DEQUEUE"], message: Tuple[str,...]) -> None:
         with self.__rw_locks["current_role"].r_locked():
-            if self.__current_role != "LEADER":
+            if self.__current_role != Role.LEADER:
                 with self.__rw_locks["current_leader_address"].r_locked():
                     conn = create_connection(
                         self.__current_leader_address
@@ -613,13 +639,13 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 "append_state_logs",
                                                 serialize(self.__current_term),
                                                 serialize(
-                                                    server_info.next_index - 1
+                                                    server_info.state_next_index - 1
+                                                ),
+                                                serialize(        
+                                                    self.__state_log[server_info.state_next_index - 1].term if server_info.state_next_index > 0 else 0
                                                 ),
                                                 serialize(
-                                                    self.__state_log[server_info.next_index - 1].term
-                                                ),
-                                                serialize(
-                                                    self.__state_log[server_info.next_index:]
+                                                    self.__state_log[server_info.state_next_index:]
                                                 ),
                                                 serialize(
                                                     self.__state_commit_index
@@ -629,7 +655,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         )
                                     )
                                 )
-                                pass
 
                                 # TODO: Update nilai next_index (bisa pake lambda function)
 
@@ -692,7 +717,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
                                                     )
                                                 )
-                                                pass
                                                 # TODO: Update nilai match_index (bisa pake lambda function)
 
                                         except:
@@ -763,7 +787,80 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                     )
                     except:
                         self.__state_log = snapshot_state_log
+                        self.__storage.save_state_log(
+                            self.__state_log
+                        )
                         raise RuntimeError("Failed to append membership logs")
+    
+    # Public Method (Write)
+    def commit_state_logs(self) -> None:
+        # Commit in Follower
+        with self.__rw_locks["state_log"].w_locked():
+            snapshot_state_log = copy.deepcopy(
+                self.__state_log
+            )
+
+            try:
+                # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
+                self.__storage.save_state_log(
+                    self.__state_log
+                )
+
+                # Apply in Follower
+                with self.__rw_locks["state_commit_index"].w_locked():
+                    snapshot_state_commit_index = copy.deepcopy(
+                        self.__state_commit_index
+                    )
+
+                    try:
+                        self.__state_commit_index = len(
+                            self.__state_log
+                        )
+
+                        with self.__rw_locks["state_last_applied"].w_locked(), self.__rw_locks["state_machine"].w_locked():
+                            snapshot_state_last_applied = copy.deepcopy(
+                                self.__state_last_applied
+                            )
+                            snapshot_state_machine = copy.deepcopy(
+                                self.__state_machine
+                            )
+
+                            try:
+                                while self.__state_last_applied < self.__state_commit_index:
+                                    last_applied_state_log = self.__state_log[
+                                        self.__state_last_applied
+                                    ]
+
+                                    match last_applied_state_log.command:
+                                        case "ENQUEUE":
+                                            for msg in last_applied_state_log.args:
+                                                self.__state_machine.put(
+                                                    msg
+                                                )
+                                        case "DEQUEUE":
+                                            self.__state_machine.get()
+                                        case _:
+                                            raise RuntimeError(
+                                                "Invalid log command")
+
+                                    self.__state_last_applied += 1
+                            except:
+                                self.__state_last_applied = snapshot_state_last_applied
+                                self.__state_machine = snapshot_state_machine
+                                raise RuntimeError(
+                                    "Failed to update known address last applied"
+                                )
+                    except:
+                        self.__state_commit_index = snapshot_state_commit_index
+                        raise RuntimeError(
+                            "Failed to update known address"
+                        )
+            except:
+                self.__state_log = snapshot_state_log
+                self.__storage.save_state_log(
+                    self.__state_log
+                )
+                raise RuntimeError("Failed to commit log")
 
 
 @rpyc.service
@@ -865,8 +962,13 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 	# Procedure: Test untuk client
     @rpyc.exposed
     def print_node(self) -> None:
+        print("current known address", self.__node.get_current_known_address())
         print("Known Address Commit Index:", self.__node.get_known_address_commit_index())
         print("Known Address Last Applied:", self.__node.get_known_address_last_applied())
         print("Leader Address:", self.__node.get_leader_address())
         print("Current Term:", self.__node.get_current_term())
         print("Current Role:", self.__node.get_current_role())
+        print("Current State Machine:", self.__node.get_state_machine())
+        print("Current State Commit Index:", self.__node.get_state_commit_index())
+        print("Current State Last Applied:", self.__node.get_state_last_applied())
+        print("Current State Log:", self.__node.get_state_log())
