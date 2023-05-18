@@ -5,7 +5,7 @@ import rpyc
 from threading import Lock
 from sched import scheduler
 from queue import Queue
-from typing import Tuple
+from typing import Literal, Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
 from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, wait_for_all, serialize, deserialize
 
@@ -147,6 +147,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                 "ADD_NODE",
                                 (self.__config.get("SERVER_ADDRESS"),)
                             )
+                            print(f"Adding default leader {self.__config.get('SERVER_ADDRESS')} to membership log")
                             self.__membership_log.append(new_membership_log)
 
                             with self.__rw_locks["known_address_commit_index"].w_locked():
@@ -555,6 +556,33 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     self.__membership_log
                 )
                 raise RuntimeError("Failed to commit log")
+    
+    # Public Method (Write)
+    # execute enqueue or dequeue
+    def add_state(self, command: Literal["ENQUEUE", "DEQUEUE"], message: Tuple[str,...]) -> None:
+        with self.__rw_locks["current_role"].r_locked():
+            if self.__current_role != "LEADER":
+                with self.__rw_locks["current_leader_address"].r_locked():
+                    conn = create_connection(
+                        self.__current_leader_address
+                    )
+                    if (command == "ENQUEUE"):
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "enqueue",
+                                serialize(message),
+                            )
+                        )
+                    else:
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "dequeue",
+                            )
+                        )
+                    return
+            # TODO: implement log replication
 
 
 @rpyc.service
@@ -579,6 +607,14 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         )
 
         self.__node.add_server(follower_addresses)
+    
+    def enqueue(self, raw_message: bytes) -> None:
+        message: Tuple[str, ...] = deserialize(raw_message)
+        self.__node.add_state("ENQUEUE", message)
+
+    def dequeue(self) -> None:
+        self.__node.add_state("DEQUEUE",  ())
+                              
 
     # Procedure
     @rpyc.exposed
