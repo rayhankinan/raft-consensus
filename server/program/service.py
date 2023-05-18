@@ -85,6 +85,31 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def get_membership_log(self) -> list[MembershipLog]:
         with self.__rw_locks["membership_log"].r_locked():
             return self.__membership_log
+    
+    # Public Method (Read): Testing untuk client
+    def get_current_term(self) -> int:
+        with self.__rw_locks["current_term"].r_locked():
+            return self.__current_term
+        
+    # Public Method (Read): Testing untuk client
+    def get_current_role(self) -> Role:
+        with self.__rw_locks["current_role"].r_locked():
+            return self.__current_role
+    
+    # Public Method (Read): Testing untuk client
+    def get_known_address_commit_index(self) -> int:
+        with self.__rw_locks["known_address_commit_index"].r_locked():
+            return self.__known_address_commit_index
+        
+    # Public Method (Read): Testing untuk client
+    def get_known_address_last_applied(self) -> int:
+        with self.__rw_locks["known_address_last_applied"].r_locked():
+            return self.__known_address_last_applied
+    
+    # Public Method (Read): Testing untuk client
+    def get_leader_address(self) -> Address:
+        with self.__rw_locks["current_leader_address"].r_locked():
+            return self.__current_leader_address
 
     # Public Method (Write)
     def start(self) -> None:
@@ -588,3 +613,12 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def print_known_address(self) -> None:
         # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         print("Known Address:", self.__node.get_current_known_address())
+        
+	# Procedure: Test untuk client
+    @rpyc.exposed
+    def print_node(self) -> None:
+        print("Known Address Commit Index:", self.__node.get_known_address_commit_index())
+        print("Known Address Last Applied:", self.__node.get_known_address_last_applied())
+        print("Leader Address:", self.__node.get_leader_address())
+        print("Current Term:", self.__node.get_current_term())
+        print("Current Role:", self.__node.get_current_role())
