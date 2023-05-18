@@ -153,7 +153,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             self.__current_known_address.update(
                                                 entries
                                             )
-
+                                            self.__known_address_commit_index += 1
                                             self.__known_address_last_applied += 1
                                         except:
                                             self.__known_address_last_applied = snapshot_known_address_last_applied
