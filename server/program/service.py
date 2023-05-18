@@ -605,30 +605,30 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             }
 
                             if len(known_follower_addresses) > 0:
-                                # asyncio.run(
-                                #     wait_for_majority(
-                                #         *(
-                                #             dynamically_call_procedure(
-                                #                 create_connection(address),
-                                #                 "append_state_logs",
-                                #                 serialize(self.__current_term),
-                                #                 serialize(
-                                #                     server_info.next_index - 1
-                                #                 ),
-                                #                 serialize(
-                                #                     self.__state_log[server_info.next_index - 1].term
-                                #                 ),
-                                #                 serialize(
-                                #                     self.__state_log[server_info.next_index:]
-                                #                 ),
-                                #                 serialize(
-                                #                     self.__state_commit_index
-                                #                 ),
-                                #             )
-                                #             for address, server_info in known_follower_addresses.items()
-                                #         )
-                                #     )
-                                # )
+                                asyncio.run(
+                                    wait_for_majority(
+                                        *(
+                                            dynamically_call_procedure(
+                                                create_connection(address),
+                                                "append_state_logs",
+                                                serialize(self.__current_term),
+                                                serialize(
+                                                    server_info.next_index - 1
+                                                ),
+                                                serialize(
+                                                    self.__state_log[server_info.next_index - 1].term
+                                                ),
+                                                serialize(
+                                                    self.__state_log[server_info.next_index:]
+                                                ),
+                                                serialize(
+                                                    self.__state_commit_index
+                                                ),
+                                            )
+                                            for address, server_info in known_follower_addresses.items()
+                                        )
+                                    )
+                                )
                                 pass
 
                                 # TODO: Update nilai next_index (bisa pake lambda function)
@@ -679,19 +679,19 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             # Commit and Apply in Current Follower
                                             # Broadcast commit_state_logs to all nodes and wait for majority
                                             if len(known_follower_addresses) > 0:
-                                                # asyncio.run(
-                                                #     wait_for_majority(
-                                                #         *(
-                                                #             dynamically_call_procedure(
-                                                #                 create_connection(
-                                                #                     address
-                                                #                 ),
-                                                #                 "commit_state_logs",
-                                                #             )
-                                                #             for address, _ in known_follower_addresses.items()
-                                                #         )
-                                                #     )
-                                                # )
+                                                asyncio.run(
+                                                    wait_for_majority(
+                                                        *(
+                                                            dynamically_call_procedure(
+                                                                create_connection(
+                                                                    address
+                                                                ),
+                                                                "commit_state_logs",
+                                                            )
+                                                            for address, _ in known_follower_addresses.items()
+                                                        )
+                                                    )
+                                                )
                                                 pass
                                                 # TODO: Update nilai match_index (bisa pake lambda function)
 
@@ -709,6 +709,61 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     except:
                         self.__state_log = snapshot_state_log
                         raise RuntimeError("Failed to append state log")
+    
+    # Public Method (Write)
+    def append_state_logs(self, term: int, prev_log_index: int, prev_log_term: int, new_state_logs: list[StateLog], leader_commit_index: int) -> None:
+        # Append in Follower
+        with self.__rw_locks["current_term"].r_locked():
+            if term < self.__current_term:
+                raise RuntimeError("Term is too old")
+
+            with self.__rw_locks["state_log"].r_locked():
+                if prev_log_index > 0 and self.__state_log[prev_log_index].term != prev_log_term:
+                    # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
+                    # Dikarenakan byzantine leader, maka follower harus mengecek apakah prev_log_index yang dikirimkan oleh leader valid
+                    raise RuntimeError("Prev Log Term does not match")
+
+                temporary_length = len(self.__state_log)
+                temporary_index = prev_log_index
+
+                with self.__rw_locks["state_log"].r_to_w_locked():
+                    snapshot_state_log = copy.deepcopy(
+                        self.__state_log
+                    )
+
+                    try:
+                        for state_log in new_state_logs:
+                            temporary_index += 1
+
+                            if temporary_index < temporary_length:
+                                self.__state_log[temporary_index] = state_log
+                            else:
+                                self.__state_log.append(state_log)
+
+                        final_length = len(self.__state_log)
+
+                        with self.__rw_locks["state_last_applied"].r_locked():
+                            if leader_commit_index <= self.__state_commit_index:
+                                return
+
+                            with self.__rw_locks["state_commit_index"].r_to_w_locked():
+                                snapshot_state_commit_index = copy.deepcopy(
+                                    self.__state_commit_index
+                                )
+
+                                try:
+                                    self.__state_commit_index = min(
+                                        leader_commit_index,
+                                        final_length,
+                                    )
+                                except:
+                                    self.__state_commit_index = snapshot_state_commit_index
+                                    raise RuntimeError(
+                                        "Failed to update known address commit index"
+                                    )
+                    except:
+                        self.__state_log = snapshot_state_log
+                        raise RuntimeError("Failed to append membership logs")
 
 
 @rpyc.service
@@ -733,14 +788,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         )
 
         self.__node.add_server(follower_addresses)
-    
-    def enqueue(self, raw_message: bytes) -> None:
-        message: Tuple[str, ...] = deserialize(raw_message)
-        self.__node.add_state("ENQUEUE", message)
-
-    def dequeue(self) -> None:
-        self.__node.add_state("DEQUEUE",  ())
-                              
 
     # Procedure
     @rpyc.exposed
@@ -755,7 +802,8 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
         # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         self.__node.append_membership_logs(
-            term, prev_log_index,
+            term, 
+            prev_log_index,
             prev_log_term,
             new_membership_logs,
             leader_commit_index,
@@ -766,6 +814,41 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def commit_membership_logs(self) -> None:
         # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         self.__node.commit_membership_logs()
+
+    # Procedure
+    @rpyc.exposed
+    def enqueue(self, raw_message: bytes) -> None:
+        message: Tuple[str, ...] = deserialize(raw_message)
+        self.__node.add_state("ENQUEUE", message)
+
+    # Procedure
+    @rpyc.exposed
+    def dequeue(self) -> None:
+        self.__node.add_state("DEQUEUE",  ())
+
+    # Procedure
+    @rpyc.exposed
+    def append_state_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_state_logs: bytes, raw_leader_commit_index: bytes) -> None:
+        term: int = deserialize(raw_term)
+        prev_log_index: int = deserialize(raw_prev_log_index)
+        prev_log_term: int = deserialize(raw_prev_log_term)
+        new_state_logs: list[StateLog] = deserialize(
+            raw_new_state_logs
+        )
+        leader_commit_index: int = deserialize(raw_leader_commit_index)
+
+        self.__node.append_state_logs(
+            term, 
+            prev_log_index,
+            prev_log_term,
+            new_state_logs,
+            leader_commit_index,
+        )
+
+    # Procedure
+    @rpyc.exposed
+    def commit_state_logs(self) -> None:
+        self.__node.commit_state_logs()
 
     # Procedure: Test untuk client
     @rpyc.exposed
