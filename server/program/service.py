@@ -130,6 +130,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                 )
 
                                 try:
+                                    self.__known_address_commit_index = len(
+                                        self.__membership_log
+                                    )
+
                                     with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
                                         snapshot_known_address_last_applied = copy.deepcopy(
                                             self.__known_address_last_applied
@@ -153,7 +157,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             self.__current_known_address.update(
                                                 entries
                                             )
-                                            self.__known_address_commit_index += 1
                                             self.__known_address_last_applied += 1
                                         except:
                                             self.__known_address_last_applied = snapshot_known_address_last_applied
@@ -251,7 +254,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                     )
                                 )
 
-                                # TODO: Update nilai next_index
+                                # TODO: Update nilai next_index (bisa pake lambda function)
 
                             # Commit and Apply in Leader
                             # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
@@ -330,7 +333,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                     )
                                                 )
 
-                                                # TODO: Update nilai match_index
+                                                # TODO: Update nilai match_index (bisa pake lambda function)
 
                                             # Append in New Follower
                                             asyncio.run(
