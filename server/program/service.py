@@ -138,6 +138,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Public Method (Write)
     def start(self) -> None:
+        
         with self.__rw_locks["current_leader_address"].r_locked():
             if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
                 conn = create_connection(self.__current_leader_address)
@@ -232,22 +233,21 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     raise RuntimeError("Failed to initialize")
                 
         #heartbeat
+        print("here")
         
-        #if follower, start timer
-        if self.__current_role == Role.FOLLOWER :
-            self.start_timer()
 
     def check_heartbeat_timeout(self) :
         while True :
             current_time = time.time()
-            elapsed_time = current_time - self.__heartbeat_timeout
+            elapsed_time = current_time - self.__last_heartbeat_time
 
-            if(elapsed_time > current_time) :
+            if(elapsed_time > self.__heartbeat_timeout) :
                 self.handle_leadership_timeout()
 
             time.sleep(self.__heartbeat_timeout)
     
     def start_timer(self) :
+        print("Starting timer")
         timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
         timer_thread.daemon = True
         timer_thread.start()
