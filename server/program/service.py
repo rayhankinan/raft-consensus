@@ -287,7 +287,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 dynamically_call_procedure(
                     conn,
                     "handle_heartbeat",
-                    serialize(self.__config.get("SERVER_ADDRESS")),
                 )
             )
 
