@@ -276,19 +276,21 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         print("Sending heartbeat")
         
         # loop through all known address
-        for address in self.__current_known_address :
-            # skip if address is current server address
-            if(address == self.__config.get("SERVER_ADDRESS")) :
-                continue
+        with self.__rw_locks["current_known_address"].r_locked() :
+            for address in self.__current_known_address :
+                # skip if address is current server address
+                    if(address == self.__config.get("SERVER_ADDRESS")) :
+                        continue
+                    
+                    # send heartbeat to address
+                    conn = create_connection(address)
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "handle_heartbeat",
+                        )
+                    )
             
-            # send heartbeat to address
-            conn = create_connection(address)
-            asyncio.run(
-                dynamically_call_procedure(
-                    conn,
-                    "handle_heartbeat",
-                )
-            )
 
     def start_heartbeat(self):
         print("Starting heartbeat")
