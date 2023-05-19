@@ -898,10 +898,14 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         timer_thread.start()
 
     def handle_leadership_timeout(self):
-        #TODO : Leader election
         print("Leadership timeout")
 
-        print("Starting leader election")
+        self.start_leader_election()
+
+    def start_leader_election(self):
+        #print("Starting leader election")
+        #TODO : start leader election
+        self.__current_term += 1
 
     def handle_heartbeat(self):
         print("Heartbeat received")
