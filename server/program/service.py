@@ -153,6 +153,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         serialize(server_addresses),
                     )
                 )
+
+                self.start_timer()
                 return
 
             with self.__rw_locks["current_role"].w_locked():
