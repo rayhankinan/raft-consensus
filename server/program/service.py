@@ -888,7 +888,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             time.sleep(self.__heartbeat_timeout)
     
     def start_timer(self) :
-        print("Starting timer")
+        #print("Starting timer")
+        #sleep for 1 second
+        time.sleep(1)
         timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
         timer_thread.daemon = True
         timer_thread.start()
@@ -912,7 +914,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__last_heartbeat_time = time.time()
 
     def send_heartbeat(self):
-        print("Sending heartbeat")
+        #print("Sending heartbeat")
         
         # loop through all known address
         with self.__rw_locks["current_known_address"].r_locked() :
