@@ -78,7 +78,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
     # Hearbeat
-    __heartbeat_timeout: float = 0.3
+    #randomize timeout
+    __heartbeat_timeout: float = random.uniform(0.15, 0.3)
     __last_heartbeat_time = time.time()
 
 
@@ -903,13 +904,83 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         self.start_leader_election()
 
     def start_leader_election(self):
-        #print("Starting leader election")
-        #TODO : start leader election
-        self.__current_term += 1
+        print("Starting leader election")
+
+        # change current role to candidate
+        with self.__rw_locks["current_role"].w_locked() :
+            self.__current_role = Role.CANDIDATE
+            
+        
+        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked() :
+            self.__current_term += 1
+            self.__voted_for = self.__config.get("SERVER_ADDRESS")
+
+        votes_received = 1
+        total_nodes = len(self.__current_known_address)
+        majority = total_nodes // 2 + 1
+
+        # send request vote to all known address
+        with self.__rw_locks["current_known_address"].r_locked() :
+            for address in self.__current_known_address :
+                # skip if address is current server address
+                if(address == self.__config.get("SERVER_ADDRESS")) :
+                    continue
+                
+                # send request vote to address
+                conn = create_connection(address)
+                try :
+                    vote_result = asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "request_vote",
+                            serialize(self.__current_term),
+                            serialize(self.__config.get("SERVER_ADDRESS")),
+                            
+                        )
+                    )
+                    if vote_result :
+                        votes_received += 1
+                        if(votes_received >= majority) :
+                            self.handle_election_win()
+                            return
+                except :
+                    print("Failed to request vote to {}".format(address))
+                    continue
+
+        # change current role to follower
+        with self.__rw_locks["current_role"].w_locked() :
+            self.__current_role = Role.FOLLOWER
+
+                
+    
+    def handle_election_win(self):
+        print("Election won")
+        self.__current_role = Role.LEADER
+        
+    
+    def request_vote(self, term, candidate_id) :
+        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["voted_for"].w_locked():
+            current_term = self.__current_term
+            voted_for = self.__voted_for
+
+            if(term < current_term) :
+                return False
+            else :
+                self.__current_term = term
+                
+
+                if(voted_for is None) :
+                    self.__voted_for = candidate_id
+                    return True
+                else :  
+                    return False
+                
+            
 
     def handle_heartbeat(self):
         print("Heartbeat received")
         self.__last_heartbeat_time = time.time()
+        
 
     def hearbeat_loop(self):
         while True :
@@ -1059,3 +1130,10 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def handle_heartbeat(self) -> None:
         self.__node.handle_heartbeat()
     
+    @rpyc.exposed
+    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> None:
+        term: int = deserialize(raw_term)
+        candidate_address: Address = deserialize(raw_candidate_address)
+
+
+        self.__node.request_vote(term, candidate_address)
