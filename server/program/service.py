@@ -878,6 +878,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Heartbeat
     def check_heartbeat_timeout(self) :
+        # wait 1 second
+        time.sleep(1)
         while True :
             current_time = time.time()
             elapsed_time = current_time - self.__last_heartbeat_time
