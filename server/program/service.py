@@ -897,6 +897,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #TODO : Leader election
         print("Leadership timeout")
 
+        print("Starting leader election")
+
     def handle_heartbeat(self):
         print("Heartbeat received")
         self.__last_heartbeat_time = time.time()
