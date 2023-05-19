@@ -8,7 +8,7 @@ from queue import Queue
 from typing import Literal, Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
 from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, wait_for_all, serialize, deserialize
-
+import threading
 
 def create_connection(address: Address) -> rpyc.Connection:
     hostname, port = address
@@ -75,6 +75,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Other state
     __current_role: Role = Role.FOLLOWER
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
+
+    # Hearbeat
+    __heartbeat_timeout: float = 0.2 # 200ms
+    __last_heartbeat_time = time.time()
+
 
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
@@ -225,6 +230,31 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 except:
                     self.__current_role = snapshot_current_role
                     raise RuntimeError("Failed to initialize")
+                
+        #heartbeat
+        
+        #if follower, start timer
+        if self.__current_role == Role.FOLLOWER :
+            self.start_timer()
+
+    def check_heartbeat_timeout(self) :
+        while True :
+            current_time = time.time()
+            elapsed_time = current_time - self.__heartbeat_timeout
+
+            if(elapsed_time > current_time) :
+                self.handle_leadership_timeout()
+
+            time.sleep(self.__heartbeat_timeout)
+    
+    def start_timer(self) :
+        timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
+        timer_thread.daemon = True
+        timer_thread.start()
+
+    def handle_leadership_timeout(self):
+        print("Leadership timeout")
+
 
     # TODO: Implementasikan penghapusan node dari cluster
     # Public Method (Write)
@@ -792,6 +822,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         )
                         raise RuntimeError("Failed to append membership logs")
     
+    
     # Public Method (Write)
     def commit_state_logs(self) -> None:
         # Commit in Follower
@@ -861,6 +892,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     self.__state_log
                 )
                 raise RuntimeError("Failed to commit log")
+    
+
+    # Method to reset timer the scheduler
+
 
 
 @rpyc.service
@@ -972,3 +1007,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         print("Current State Commit Index:", self.__node.get_state_commit_index())
         print("Current State Last Applied:", self.__node.get_state_last_applied())
         print("Current State Log:", self.__node.get_state_log())
+
+
+    
