@@ -78,7 +78,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
     # Hearbeat
-    __heartbeat_timeout: float = 0.2 # 200ms
+    __heartbeat_timeout: float = 1
     __last_heartbeat_time = time.time()
 
 
@@ -266,13 +266,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def hearbeat_loop(self):
         while True :
             elapsed_time = time.time() - self.__last_heartbeat_time
-            if(elapsed_time > self.__heartbeat_timeout) :
+            if(elapsed_time > 0.1) :
                 self.send_heartbeat()
 
                 self.__last_heartbeat_time = time.time()
 
-            # randomize heartbeat timeout
-            time.sleep(self.__heartbeat_timeout * random.uniform(0.5, 1.5))
+        
 
     def send_heartbeat(self):
         print("Sending heartbeat")
