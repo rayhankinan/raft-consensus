@@ -78,7 +78,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
     # Hearbeat
-    __heartbeat_timeout: float = 0.2 # 200ms
+    __heartbeat_timeout: float = 1
     __last_heartbeat_time = time.time()
 
 
