@@ -8,7 +8,8 @@ from queue import Queue
 from typing import Literal, Tuple
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
 from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, wait_for_all, serialize, deserialize
-
+import threading
+import random
 
 def create_connection(address: Address) -> rpyc.Connection:
     hostname, port = address
@@ -76,6 +77,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __current_role: Role = Role.FOLLOWER
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
 
+    # Hearbeat
+    __heartbeat_timeout: float = 1
+    __last_heartbeat_time = time.time()
+
+
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
         with self.__rw_locks["current_known_address"].r_locked():
@@ -133,6 +139,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Public Method (Write)
     def start(self) -> None:
+        
         with self.__rw_locks["current_leader_address"].r_locked():
             if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
                 conn = create_connection(self.__current_leader_address)
@@ -146,6 +153,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         serialize(server_addresses),
                     )
                 )
+
+                self.start_timer()
                 return
 
             with self.__rw_locks["current_role"].w_locked():
@@ -225,7 +234,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 except:
                     self.__current_role = snapshot_current_role
                     raise RuntimeError("Failed to initialize")
-
+                
+        #heartbeat
+        self.start_heartbeat()
+        
     # TODO: Implementasikan penghapusan node dari cluster
     # Public Method (Write)
     def stop(self) -> None:
@@ -792,6 +804,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         )
                         raise RuntimeError("Failed to append membership logs")
     
+    
     # Public Method (Write)
     def commit_state_logs(self) -> None:
         # Commit in Follower
@@ -861,6 +874,70 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     self.__state_log
                 )
                 raise RuntimeError("Failed to commit log")
+    
+
+    # Heartbeat
+    def check_heartbeat_timeout(self) :
+        while True :
+            current_time = time.time()
+            elapsed_time = current_time - self.__last_heartbeat_time
+
+            if(elapsed_time > self.__heartbeat_timeout) :
+                self.handle_leadership_timeout()
+
+            time.sleep(self.__heartbeat_timeout)
+    
+    def start_timer(self) :
+        print("Starting timer")
+        timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
+        timer_thread.daemon = True
+        timer_thread.start()
+
+    def handle_leadership_timeout(self):
+        #TODO : Leader election
+        print("Leadership timeout")
+
+    def handle_heartbeat(self):
+        print("Heartbeat received")
+        self.__last_heartbeat_time = time.time()
+
+    def hearbeat_loop(self):
+        while True :
+            elapsed_time = time.time() - self.__last_heartbeat_time
+            if(elapsed_time > self.__heartbeat_timeout) :
+                self.send_heartbeat()
+
+                self.__last_heartbeat_time = time.time()
+
+            # randomize heartbeat timeout
+            time.sleep(self.__heartbeat_timeout * random.uniform(0.5, 1.5))
+
+    def send_heartbeat(self):
+        print("Sending heartbeat")
+        
+        # loop through all known address
+        with self.__rw_locks["current_known_address"].r_locked() :
+            for address in self.__current_known_address :
+                # skip if address is current server address
+                    if(address == self.__config.get("SERVER_ADDRESS")) :
+                        continue
+                    
+                    # send heartbeat to address
+                    conn = create_connection(address)
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "handle_heartbeat",
+                        )
+                    )
+            
+
+    def start_heartbeat(self):
+        print("Starting heartbeat")
+        heartbeat_thread = threading.Thread(target=self.hearbeat_loop)
+        heartbeat_thread.daemon = True
+        heartbeat_thread.start()
+
 
 
 @rpyc.service
@@ -972,3 +1049,8 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         print("Current State Commit Index:", self.__node.get_state_commit_index())
         print("Current State Last Applied:", self.__node.get_state_last_applied())
         print("Current State Log:", self.__node.get_state_log())
+
+    @rpyc.exposed
+    def handle_heartbeat(self) -> None:
+        self.__node.handle_heartbeat()
+    
