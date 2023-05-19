@@ -273,8 +273,23 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             time.sleep(self.__heartbeat_timeout * random.uniform(0.5, 1.5))
 
     def send_heartbeat(self):
-        # TODO : Send heartbeat to all follower
         print("Sending heartbeat")
+        
+        # loop through all known address
+        for address in self.__current_known_address :
+            # skip if address is current server address
+            if(address == self.__config.get("SERVER_ADDRESS")) :
+                continue
+            
+            # send heartbeat to address
+            conn = create_connection(address)
+            asyncio.run(
+                dynamically_call_procedure(
+                    conn,
+                    "handle_heartbeat",
+                    serialize(self.__config.get("SERVER_ADDRESS")),
+                )
+            )
 
     def start_heartbeat(self):
         print("Starting heartbeat")
@@ -1034,5 +1049,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         print("Current State Last Applied:", self.__node.get_state_last_applied())
         print("Current State Log:", self.__node.get_state_log())
 
-
+    @rpyc.exposed
+    def handle_heartbeat(self) -> None:
+        self.__node.handle_heartbeat()
     
