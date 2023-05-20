@@ -941,7 +941,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             
                         )
                     )
-                    print(vote_result)
+                    
                     if vote_result :
                         votes_received += 1
                         if(votes_received >= majority) :
@@ -985,8 +985,18 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             return self.__voted_for == candidate_id
             
 
-    def handle_heartbeat(self):
-        print("Heartbeat received")
+    def handle_heartbeat(self, term):
+        #print("Heartbeat received")
+        #if received heartbeat and is leader, check is received term greater than current term
+        #if greater, become follower and update current term
+
+        with self.__rw_locks["current_term"].w_locked() :
+            if(term > self.__current_term) :
+                self.__current_term = term
+                self.__current_role = Role.FOLLOWER
+                #stop self timer and start heartbeat
+                self.start_timer()
+
         self.__last_heartbeat_time = time.time()
         
 
@@ -1018,6 +1028,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         dynamically_call_procedure(
                             conn,
                             "handle_heartbeat",
+                            serialize(self.__current_term)
                         )
                     )
             
@@ -1139,8 +1150,9 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         print("Current State Log:", self.__node.get_state_log())
 
     @rpyc.exposed
-    def handle_heartbeat(self) -> None:
-        self.__node.handle_heartbeat()
+    def handle_heartbeat(self, raw_term: bytes) -> None:
+        term: int = deserialize(raw_term)
+        self.__node.handle_heartbeat(term)
     
     @rpyc.exposed
     def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> bool:
