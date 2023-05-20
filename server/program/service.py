@@ -959,39 +959,42 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 
     def become_follower(self) :
         #print("Becoming follower")
-        self.__current_role = Role.FOLLOWER
-        self.start_timer()
+        #lock
+        with self.__rw_locks["current_role"].w_locked() :
+            self.__current_role = Role.FOLLOWER
+            self.start_timer()
 
 
     def handle_election_win(self):
-        if(self.__current_role != Role.CANDIDATE) :
-            return
-        print("Election won")
-        self.__current_role = Role.LEADER
+        with self.__rw_locks["current_role"].w_locked() :
+            if(self.__current_role != Role.CANDIDATE) :
+                return
+            print("Election won")
+            self.__current_role = Role.LEADER
 
-        #stop self timer and start heartbeat
-        self.start_timer()
-        self.start_heartbeat()
+            #stop self timer and start heartbeat
+            self.start_timer()
+            self.start_heartbeat()
 
-        #rpc become follower to all known address
-        with self.__rw_locks["current_known_address"].r_locked() :
-            for address in self.__current_known_address :
-                # skip if address is current server address
-                if(address == self.__config.get("SERVER_ADDRESS")) :
-                    continue
-                
-                # send request vote to address
-                conn = create_connection(address)
-                try :
-                    asyncio.run(
-                        dynamically_call_procedure(
-                            conn,
-                            "become_follower",
+            #rpc become follower to all known address
+            with self.__rw_locks["current_known_address"].r_locked() :
+                for address in self.__current_known_address :
+                    # skip if address is current server address
+                    if(address == self.__config.get("SERVER_ADDRESS")) :
+                        continue
+                    
+                    # send request vote to address
+                    conn = create_connection(address)
+                    try :
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "become_follower",
+                            )
                         )
-                    )
-                except :
-                    print("Failed to send become follower to {}".format(address))
-                    continue
+                    except :
+                        print("Failed to send become follower to {}".format(address))
+                        continue
         
     
     def request_vote(self, term, candidate_id) :
