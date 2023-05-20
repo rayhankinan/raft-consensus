@@ -881,7 +881,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def check_heartbeat_timeout(self) :
         # wait 1 second
         time.sleep(1)
-        while True :
+        while self.__current_role == Role.FOLLOWER :
             current_time = time.time()
             elapsed_time = current_time - self.__last_heartbeat_time
 
@@ -897,6 +897,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
         timer_thread.daemon = True
         timer_thread.start()
+        
+
+    
 
     def handle_leadership_timeout(self):
         print("Leadership timeout")
@@ -938,6 +941,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             
                         )
                     )
+                    print(vote_result)
                     if vote_result :
                         votes_received += 1
                         if(votes_received >= majority) :
@@ -956,10 +960,14 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def handle_election_win(self):
         print("Election won")
         self.__current_role = Role.LEADER
+
+        #stop self timer and start heartbeat
+        self.start_timer()
+        self.start_heartbeat()
         
     
     def request_vote(self, term, candidate_id) :
-        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["voted_for"].w_locked():
+        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked():
             current_term = self.__current_term
             voted_for = self.__voted_for
 
@@ -969,12 +977,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__current_term = term
                 
 
-                if(voted_for is None) :
+                if(voted_for != candidate_id) :
+                    
                     self.__voted_for = candidate_id
-                    return True
-                else :  
-                    return False
+            
                 
+            return self.__voted_for == candidate_id
             
 
     def handle_heartbeat(self):
@@ -983,11 +991,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         
 
     def hearbeat_loop(self):
-        while True :
+        count = 0
+        while self.__current_role == Role.LEADER :
             elapsed_time = time.time() - self.__last_heartbeat_time
+
+            if(count >= 20) :
+                return
             if(elapsed_time > 0.1) :
                 self.send_heartbeat()
-
+                count += 1
                 self.__last_heartbeat_time = time.time()
 
     def send_heartbeat(self):
@@ -1131,9 +1143,9 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         self.__node.handle_heartbeat()
     
     @rpyc.exposed
-    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> None:
+    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> bool:
         term: int = deserialize(raw_term)
         candidate_address: Address = deserialize(raw_candidate_address)
 
 
-        self.__node.request_vote(term, candidate_address)
+        return self.__node.request_vote(term, candidate_address)
