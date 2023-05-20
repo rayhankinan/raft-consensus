@@ -942,6 +942,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             
                         )
                     )
+                    if self.__current_role != Role.CANDIDATE:
+                        return  
                     
                     if vote_result :
                         votes_received += 1
@@ -1002,7 +1004,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             current_term = self.__current_term
             voted_for = self.__voted_for
 
-            if(term < current_term) :
+            if(term <= current_term) :
                 return False
             else :
                 self.__current_term = term
