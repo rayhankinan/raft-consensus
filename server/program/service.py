@@ -120,7 +120,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Public Method (Read): Testing untuk client
     def get_state_machine(self) -> Queue[str]:
         with self.__rw_locks["state_machine"].r_locked():
-            return self.__state_machine
+            return self.__state_machine.queue
     
     # Public Method (Read): Testing untuk client
     def get_state_commit_index(self) -> int:
@@ -154,7 +154,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     )
                 )
 
-                self.start_timer()
+                # self.start_timer()
                 return
 
             with self.__rw_locks["current_role"].w_locked():
@@ -205,7 +205,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 len(self.__membership_log) - 1,
                                                 0,
                                                 len(self.__state_log),
-                                                0,
+                                                -1,
                                             )
                                             entries = {
                                                 current_address: current_server_info
@@ -235,8 +235,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     self.__current_role = snapshot_current_role
                     raise RuntimeError("Failed to initialize")
                 
-        #heartbeat
-        self.start_heartbeat()
+        # #heartbeat
+        # self.start_heartbeat()
         
     # TODO: Implementasikan penghapusan node dari cluster
     # Public Method (Write)
@@ -353,7 +353,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                                 len(self.__membership_log) - 1,
                                                                 0,
                                                                 len(self.__state_log),
-                                                                0,
+                                                                -1,
                                                             ) for address in last_applied_membership_log.args
                                                         }
                                                         self.__current_known_address.update(
@@ -559,7 +559,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                     len(self.__membership_log) - 1,
                                                     0,
                                                     len(self.__state_log),
-                                                    0,
+                                                    -1,
                                                 ) for address in last_applied_membership_log.args
                                             }
                                             self.__current_known_address.update(
@@ -657,7 +657,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                     self.__state_log[server_info.state_next_index - 1].term if server_info.state_next_index > 0 else 0
                                                 ),
                                                 serialize(
-                                                    self.__state_log[server_info.state_next_index:]
+                                                    self.__state_log[server_info.state_next_index:] if server_info.state_next_index < len(self.__state_log) else []
                                                 ),
                                                 serialize(
                                                     self.__state_commit_index
@@ -667,14 +667,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         )
                                     )
                                 )
-
-                                # TODO: Update nilai next_index (bisa pake lambda function)
-
                             # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                             self.__storage.save_state_log(
                                 self.__state_log
                             )
-
                             with self.__rw_locks["state_commit_index"].r_to_w_locked():
                                 snapshot_state_commit_index = copy.deepcopy(
                                     self.__state_commit_index
@@ -689,8 +685,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         snapshot_state_last_applied = copy.deepcopy(
                                             self.__state_last_applied
                                         )
-                                        snapshot_state_machine = copy.deepcopy(
-                                            self.__state_machine
+                                        snapshot_state_machine = Queue()
+                                        snapshot_state_machine.queue = copy.deepcopy(
+                                            self.__state_machine.queue
                                         )
 
                                         try:
@@ -729,8 +726,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
                                                     )
                                                 )
-                                                # TODO: Update nilai match_index (bisa pake lambda function)
-
                                         except:
                                             self.__state_last_applied = snapshot_state_last_applied
                                             self.__state_machine = snapshot_state_machine
@@ -754,10 +749,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Term is too old")
 
             with self.__rw_locks["state_log"].r_locked():
-                if prev_log_index > 0 and self.__state_log[prev_log_index].term != prev_log_term:
-                    # Kurangi nilai prev_log_index pada RPC yang dipanggil oleh leader dan ulangi lagi
-                    # Dikarenakan byzantine leader, maka follower harus mengecek apakah prev_log_index yang dikirimkan oleh leader valid
-                    raise RuntimeError("Prev Log Term does not match")
+                if prev_log_index >= 0 and self.__state_log[prev_log_index].term != prev_log_term:
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            create_connection(
+                                self.__current_leader_address
+                            ),
+                            "decrease_next_index"
+                        )
+                    )
+                    return
 
                 temporary_length = len(self.__state_log)
                 temporary_index = prev_log_index
@@ -777,6 +778,18 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                 self.__state_log.append(state_log)
 
                         final_length = len(self.__state_log)
+
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                create_connection(
+                                    self.__current_leader_address
+                                ),
+                                "update_next_match",
+                                serialize(self.__config.get("SERVER_ADDRESS")),
+                                serialize(final_length),
+                                serialize(final_length - 1)
+                            )
+                        )
 
                         with self.__rw_locks["state_last_applied"].r_locked():
                             if leader_commit_index <= self.__state_commit_index:
@@ -834,10 +847,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             snapshot_state_last_applied = copy.deepcopy(
                                 self.__state_last_applied
                             )
-                            snapshot_state_machine = copy.deepcopy(
-                                self.__state_machine
+                            # copy state machine
+                            snapshot_state_machine = Queue()
+                            snapshot_state_machine.queue = copy.deepcopy(
+                                self.__state_machine.queue
                             )
-
                             try:
                                 while self.__state_last_applied < self.__state_commit_index:
                                     last_applied_state_log = self.__state_log[
@@ -875,6 +889,62 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 )
                 raise RuntimeError("Failed to commit log")
     
+    # Decrease next and match index
+    def decrease_next_index(self, address: Address) -> None:
+        print("decrease next index")
+        with self.__rw_locks["current_known_address"].r_to_w_locked():
+            snapshot_current_known_address = copy.deepcopy(
+                self.__current_known_address
+            )
+            try:
+                for known_address, serverinfo in self.__current_known_address.items():
+                    if known_address == address:
+                        ## update next index
+                        serverinfo._replace(state_next_index=serverinfo.state_next_index - 1)
+                ## sendback append entry to address
+                        with self.__rw_locks["state_log"].r_locked():
+                            asyncio.run(
+                                dynamically_call_procedure(
+                                    create_connection(address),
+                                    "append_state_logs",
+                                    serialize(self.__current_term),
+                                    serialize(
+                                        serverinfo.state_next_index - 1
+                                    ),
+                                    serialize(        
+                                        self.__state_log[serverinfo.state_next_index - 1].term if serverinfo.state_next_index > 0 else 0
+                                    ),
+                                    serialize(
+                                        self.__state_log[serverinfo.state_next_index:] if serverinfo.state_next_index < len(self.__state_log) else []
+                                    ),
+                                    serialize(
+                                        self.__state_commit_index
+                                    ),
+                                )
+                            )
+            except:
+                self.__current_known_address = snapshot_current_known_address
+                raise RuntimeError("Failed to decrease next index")
+            
+    def update_next_match(self, address: Address, next_index: int, match_index: int) -> None:
+        with self.__rw_locks["current_known_address"].r_to_w_locked():
+            snapshot_current_known_address = copy.deepcopy(
+                self.__current_known_address
+            )
+            try:
+                for known_address, serverinfo in self.__current_known_address.items():
+                    if known_address.get_hostname() == address.get_hostname() and known_address.get_port() == address.get_port():
+                        newServerInfo = ServerInfo(
+                            serverinfo.next_index,
+                            serverinfo.match_index,
+                            next_index,
+                            match_index
+                        )
+                        self.__current_known_address[known_address] = newServerInfo
+                        break
+            except:
+                self.__current_known_address = snapshot_current_known_address
+                raise RuntimeError("Failed to update next index")
 
     # Heartbeat
     def check_heartbeat_timeout(self) :
@@ -1018,6 +1088,19 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             new_state_logs,
             leader_commit_index,
         )
+    
+    @rpyc.exposed
+    def decrease_next_index(self, raw_address: bytes) -> None:
+        address: Address = deserialize(raw_address)
+        self.__node.decrease_next_index(address)
+    
+    @rpyc.exposed
+    def update_next_match(self, raw_address: bytes, raw_next_index: bytes, raw_match_index: bytes) -> None:
+        # get current address from connection
+        address: Address = deserialize(raw_address)
+        next_index: int = deserialize(raw_next_index)
+        match_index: int = deserialize(raw_match_index)
+        self.__node.update_next_match(address, next_index, match_index)
 
     # Procedure
     @rpyc.exposed
