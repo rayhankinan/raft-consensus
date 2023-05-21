@@ -247,7 +247,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
             self.__last_term = 0
-            self.timeout_thread = threading.Thread(target=self.check_heartbeat_timeout)
+            self.timeout_thread = threading.Thread(target=self.check_timeout)
             self.timeout_thread.daemon = True
             self.timeout_thread.start()
         
@@ -889,7 +889,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Failed to commit log")
     
     # Heartbeat
-    def check_heartbeat_timeout(self) :
+    def check_timeout(self):
         # wait 1 second
         # time.sleep(1)
         # while self.__current_role == Role.FOLLOWER :
@@ -897,37 +897,35 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #     elapsed_time = current_time - self.__last_heartbeat_time
 
         #     if(elapsed_time > self.__heartbeat_timeout) :
-        #         self.handle_leadership_timeout()
+        #         self.handle_timeout()
 
         #     time.sleep(self.__heartbeat_timeout)
         while True:
             if self.__current_role != Role.LEADER:
                 if (time.time() - self.__last_heartbeat_time) > self.__heartbeat_timeout:
-                    self.handle_leadership_timeout()
+                    self.handle_timeout()
             time.sleep(0.1)
-            
     
     def start_timer(self) :
         #print("Starting timer")
         #sleep for 1 second
         # time.sleep(1)
-        timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
+        timer_thread = threading.Thread(target=self.check_timeout)
         timer_thread.daemon = True
         timer_thread.start()
 
-    def handle_leadership_timeout(self):
-        print("Node ", self.__config.get("SERVER_ADDRESS"), " timeout")
+    def handle_timeout(self):
+        print("Node", self.__config.get("SERVER_ADDRESS"), "timeout")
         self.start_leader_election()
 
     def start_leader_election(self):
-        print("Starting leader election")
-        # change current role to candidate
+        print("Starting leader election for node", self.__config.get("SERVER_ADDRESS"))
 
         with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
             self.__current_role = Role.CANDIDATE
-            print("Current role: ", self.__current_role)
+            print("Current role:", self.__current_role)
             self.__current_term += 1
-            print("Current term: ", self.__current_term)
+            print("Current term:", self.__current_term)
         
         # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked() :
         #     self.__current_term += 1
@@ -972,16 +970,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     print("Failed to request vote to {}".format(address))
                     continue
 
-        print("Votes received: ", votes_received)
+        print("Votes received:", votes_received)
         if (votes_received >= majority):
-            print("Current role before win: ", self.__current_role)
+            # print("Current role before win: ", self.__current_role)
             self.handle_election_win()
             return
 
         with self.__rw_locks["current_role"].w_locked() :
             self.__current_role = Role.FOLLOWER
             print("Failed to win election")
-            print("Current role: ", self.__current_role)
+            # print("Current role: ", self.__current_role)
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
                 
@@ -992,6 +990,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #     self.__current_role = Role.FOLLOWER
         #     print("Current role: ", self.__current_role)
         #     # self.start_timer()
+        print("Becoming follower")
         with self.__rw_locks["current_leader_address"].w_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
             self.__current_leader_address = address
             print("Current leader address: ", self.__current_leader_address)
@@ -1005,10 +1004,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     def handle_election_win(self):
         # time.sleep(1)
-        with self.__rw_locks["current_role"].w_locked() :
+        with self.__rw_locks["current_role"].w_locked():
             # if(self.__current_role != Role.CANDIDATE) :
             #     return
-            print("Election won")
+            print("Election won by node", self.__config.get("SERVER_ADDRESS"))
             self.__current_role = Role.LEADER
             self.__current_leader_address = self.__config.get("SERVER_ADDRESS")
             print("Current role: ", self.__current_role)
@@ -1019,16 +1018,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         # self.start_heartbeat()
 
             #rpc become follower to all known address
-        with self.__rw_locks["current_known_address"].r_locked() :
+        with self.__rw_locks["current_known_address"].r_locked():
             for address in self.__current_known_address :
                 # skip if address is current server address
-                if(address == self.__config.get("SERVER_ADDRESS")) :
+                if(address == self.__config.get("SERVER_ADDRESS")):
                     continue
                 
                 print("Sending become follower to {}".format(address))
                 # send request vote to address
                 conn = create_connection(address)
-                try :
+                try:
                     asyncio.run(
                         dynamically_call_procedure(
                             conn,
@@ -1037,7 +1036,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             serialize(self.__current_leader_address),
                         )
                     )
-                except :
+                except:
                     print("Failed to send become follower to {}".format(address))
                     continue
 
@@ -1083,6 +1082,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 
         # return self.__voted_for == candidate_id
         if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE:
+            print("Vote rejected for:", candidate_id)
             return False
         
         self.__last_term = term
@@ -1094,7 +1094,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         return True
 
     def handle_heartbeat(self, term):
-        # print("Heartbeat received")
+        print("Heartbeat received")
         #if received heartbeat and is leader, check is received term greater than current term
         #if greater, become follower and update current term
 
@@ -1123,7 +1123,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__last_heartbeat_time = time.time()
 
     def send_heartbeat(self):
-        
         # loop through all known address
         with self.__rw_locks["current_known_address"].r_locked() :
             for address in self.__current_known_address :
