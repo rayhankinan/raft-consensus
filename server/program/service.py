@@ -76,11 +76,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Other state
     __current_role: Role = Role.FOLLOWER
     __current_leader_address: Address = __config.get("LEADER_ADDRESS")
+    __last_term = 0
 
     # Hearbeat
-    __heartbeat_timeout: float = 1
+    __heartbeat_interval: float = 1.0
+    __heartbeat_timeout: float = random.uniform(2.0, 3.0)
     __last_heartbeat_time = time.time()
-
 
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
@@ -154,48 +155,51 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     )
                 )
 
+                # self.__last_heartbeat_time = time.time()
+                # self.__heartbeat_timeout = random.uniform(2.0, 3.0)
                 # self.start_timer()
-                return
+                # return
 
-            with self.__rw_locks["current_role"].w_locked():
-                snapshot_current_role = copy.deepcopy(
-                    self.__current_role
-                )
+            else:  
+                with self.__rw_locks["current_role"].w_locked():
+                    snapshot_current_role = copy.deepcopy(
+                        self.__current_role
+                    )
 
-                try:
-                    self.__current_role = Role.LEADER
+                    try:
+                        self.__current_role = Role.LEADER
 
-                    with self.__rw_locks["membership_log"].w_locked():
-                        snapshot_membership_log = copy.deepcopy(
-                            self.__membership_log
-                        )
-
-                        try:
-                            new_membership_log = MembershipLog(
-                                self.__current_term,
-                                "ADD_NODE",
-                                (self.__config.get("SERVER_ADDRESS"),)
+                        with self.__rw_locks["membership_log"].w_locked():
+                            snapshot_membership_log = copy.deepcopy(
+                                self.__membership_log
                             )
-                            print(f"Adding default leader {self.__config.get('SERVER_ADDRESS')} to membership log")
-                            self.__membership_log.append(new_membership_log)
 
-                            with self.__rw_locks["known_address_commit_index"].w_locked():
-                                snapshot_known_address_commit_index = copy.deepcopy(
-                                    self.__known_address_commit_index
+                            try:
+                                new_membership_log = MembershipLog(
+                                    self.__current_term,
+                                    "ADD_NODE",
+                                    (self.__config.get("SERVER_ADDRESS"),)
                                 )
+                                print(f"Adding default leader {self.__config.get('SERVER_ADDRESS')} to membership log")
+                                self.__membership_log.append(new_membership_log)
 
-                                try:
-                                    self.__known_address_commit_index = len(
-                                        self.__membership_log
+                                with self.__rw_locks["known_address_commit_index"].w_locked():
+                                    snapshot_known_address_commit_index = copy.deepcopy(
+                                        self.__known_address_commit_index
                                     )
 
-                                    with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
-                                        snapshot_known_address_last_applied = copy.deepcopy(
-                                            self.__known_address_last_applied
+                                    try:
+                                        self.__known_address_commit_index = len(
+                                            self.__membership_log
                                         )
-                                        snapshot_current_known_address = copy.deepcopy(
-                                            self.__current_known_address
-                                        )
+
+                                        with self.__rw_locks["known_address_last_applied"].w_locked(), self.__rw_locks["current_known_address"].w_locked():
+                                            snapshot_known_address_last_applied = copy.deepcopy(
+                                                self.__known_address_last_applied
+                                            )
+                                            snapshot_current_known_address = copy.deepcopy(
+                                                self.__current_known_address
+                                            )
 
                                         try:
                                             current_address = self.__config.get(
@@ -216,27 +220,36 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             )
                                             self.__known_address_last_applied += 1
                                         except:
-                                            self.__known_address_last_applied = snapshot_known_address_last_applied
-                                            self.__current_known_address = snapshot_current_known_address
-                                            raise RuntimeError(
-                                                "Failed to update current known address"
-                                            )
-                                except:
-                                    self.__known_address_commit_index = snapshot_known_address_commit_index
-                                    raise RuntimeError(
-                                        "Failed to update known address"
-                                    )
+                                                self.__known_address_last_applied = snapshot_known_address_last_applied
+                                                self.__current_known_address = snapshot_current_known_address
+                                                raise RuntimeError(
+                                                    "Failed to update current known address"
+                                                )
+                                    except:
+                                        self.__known_address_commit_index = snapshot_known_address_commit_index
+                                        raise RuntimeError(
+                                            "Failed to update known address"
+                                        )
 
-                        except:
-                            self.__membership_log = snapshot_membership_log
-                            raise RuntimeError("Failed to add log")
+                            except:
+                                self.__membership_log = snapshot_membership_log
+                                raise RuntimeError("Failed to add log")
 
-                except:
-                    self.__current_role = snapshot_current_role
-                    raise RuntimeError("Failed to initialize")
-                
-        # #heartbeat
-        # self.start_heartbeat()
+                    except:
+                        self.__current_role = snapshot_current_role
+                        raise RuntimeError("Failed to initialize")
+                    
+                # heartbeat
+                self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
+                self.hearbeat_thread.daemon = True
+                self.hearbeat_thread.start()
+
+            self.__last_heartbeat_time = time.time()
+            self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+            self.__last_term = 0
+            self.timeout_thread = threading.Thread(target=self.check_timeout)
+            self.timeout_thread.daemon = True
+            self.timeout_thread.start()
         
     # TODO: Implementasikan penghapusan node dari cluster
     # Public Method (Write)
@@ -947,68 +960,268 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Failed to update next index")
 
     # Heartbeat
-    def check_heartbeat_timeout(self) :
-        while True :
-            current_time = time.time()
-            elapsed_time = current_time - self.__last_heartbeat_time
+    def check_timeout(self):
+        # wait 1 second
+        # time.sleep(1)
+        # while self.__current_role == Role.FOLLOWER :
+        #     current_time = time.time()
+        #     elapsed_time = current_time - self.__last_heartbeat_time
 
-            if(elapsed_time > self.__heartbeat_timeout) :
-                self.handle_leadership_timeout()
+        #     if(elapsed_time > self.__heartbeat_timeout) :
+        #         self.handle_timeout()
 
+        #     time.sleep(self.__heartbeat_timeout)
+        time.sleep(1)
+        while True:
+            if self.__current_role != Role.LEADER:
+                if (time.time() - self.__last_heartbeat_time) > self.__heartbeat_timeout:
+                    self.handle_timeout()
             time.sleep(self.__heartbeat_timeout)
     
     def start_timer(self) :
-        print("Starting timer")
-        timer_thread = threading.Thread(target=self.check_heartbeat_timeout)
+        #print("Starting timer")
+        #sleep for 1 second
+        # time.sleep(1)
+        timer_thread = threading.Thread(target=self.check_timeout)
         timer_thread.daemon = True
         timer_thread.start()
 
-    def handle_leadership_timeout(self):
-        #TODO : Leader election
-        print("Leadership timeout")
+    def handle_timeout(self):
+        print("Node", self.__config.get("SERVER_ADDRESS"), "timeout")
+        self.start_leader_election()
 
-    def handle_heartbeat(self):
-        print("Heartbeat received")
+    def start_leader_election(self):
+        print("Starting leader election for node", self.__config.get("SERVER_ADDRESS"))
+
+        with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
+            self.__current_role = Role.CANDIDATE
+            print("Current role:", self.__current_role)
+            self.__current_term += 1
+            print("Current term:", self.__current_term)
+        
+        # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked() :
+        #     self.__current_term += 1
+        #     print("Current term: ", self.__current_term)
+        #     # current_term = self.__current_term + 1
+        #     self.__voted_for = self.__config.get("SERVER_ADDRESS")
+
+        votes_received = 1
+        total_nodes = len(self.__current_known_address)
+        majority = total_nodes // 2 + 1
+
+        # send request vote to all known address
+        with self.__rw_locks["current_known_address"].r_locked():
+            for address in self.__current_known_address :
+                #if role changed mid election, leader election is cancelled
+                # if(self.__current_role != Role.CANDIDATE) :
+                #     return
+                # skip if address is current server address
+                if (address == self.__config.get("SERVER_ADDRESS")):
+                    continue
+                
+                # send request vote to address
+                print("Sending request vote to", address)
+                conn = create_connection(address)
+                try:
+                    vote_result = asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "request_vote",
+                            serialize(self.__current_term),
+                            serialize(self.__config.get("SERVER_ADDRESS")),
+                        )
+                    )
+
+                    # time.sleep(1)
+                    # if self.__current_role != Role.CANDIDATE:
+                    #     return  
+                    
+                    if vote_result:
+                        votes_received += 1
+                except:
+                    print("Failed to request vote to {}".format(address))
+                    continue
+
+        print("Votes received:", votes_received)
+        if (votes_received >= majority):
+            # print("Current role before win: ", self.__current_role)
+            self.handle_election_win()
+            return
+
+        with self.__rw_locks["current_role"].w_locked() :
+            self.__current_role = Role.FOLLOWER
+            print("Failed to win election")
+            # print("Current role: ", self.__current_role)
+            self.__last_heartbeat_time = time.time()
+            self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+                
+    def become_follower(self, address, term):
+        #print("Becoming follower")
+        #lock
+        # with self.__rw_locks["current_role"].w_locked() :
+        #     self.__current_role = Role.FOLLOWER
+        #     print("Current role: ", self.__current_role)
+        #     # self.start_timer()
+        print("Becoming follower")
+        with self.__rw_locks["current_leader_address"].w_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
+            self.__current_leader_address = address
+            print("Current leader address: ", self.__current_leader_address)
+            self.__current_role = Role.FOLLOWER
+            print("Current role: ", self.__current_role)
+            self.__current_term = term
+            print("Current term: ", self.__current_term)
+
         self.__last_heartbeat_time = time.time()
+        self.__heartbeat_timeout = random.uniform(1.5, 3.0)
+
+    def handle_election_win(self):
+        # time.sleep(1)
+        with self.__rw_locks["current_role"].w_locked():
+            # if(self.__current_role != Role.CANDIDATE) :
+            #     return
+            print("Election won by node", self.__config.get("SERVER_ADDRESS"))
+            self.__current_role = Role.LEADER
+            self.__current_leader_address = self.__config.get("SERVER_ADDRESS")
+            print("Current role: ", self.__current_role)
+            print("Current term: ", self.__current_term)
+
+            #stop self timer and start heartbeat
+        # self.start_timer()
+        # self.start_heartbeat()
+
+            #rpc become follower to all known address
+        with self.__rw_locks["current_known_address"].r_locked():
+            for address in self.__current_known_address :
+                # skip if address is current server address
+                if(address == self.__config.get("SERVER_ADDRESS")):
+                    continue
+                
+                print("Sending become follower to {}".format(address))
+                # send request vote to address
+                conn = create_connection(address)
+                try:
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            conn,
+                            "become_follower",
+                            serialize(self.__current_term),
+                            serialize(self.__current_leader_address),
+                        )
+                    )
+                except:
+                    print("Failed to send become follower to {}".format(address))
+                    continue
+
+        # heartbeat
+        self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
+        self.hearbeat_thread.daemon = True
+        self.hearbeat_thread.start()
+        # with self.__rw_locks["current_role"].w_locked() :
+        #     self.__current_role = Role.FOLLOWER
+        #     print("Current role: ", self.__current_role)
+    
+    # def handle_election_win(self):
+    #     print("Election won")
+    #     with self.__rw_locks["current_role"].w_locked() :
+    #         self.__current_role = Role.LEADER
+    #         print("Current role: ", self.__current_role)
+
+    #     #stop self timer and start heartbeat
+    #     self.start_heartbeat()
+    #     self.start_timer()
+    
+    def request_vote(self, term, candidate_id):
+        # time.sleep(1)
+        # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked():
+        #     current_term = self.__current_term
+        #     print("Current term on request: ", current_term)
+        #     voted_for = self.__voted_for
+        #     print("Voted for on request: ", voted_for)
+
+        #     if (term < current_term):
+        #         return False
+        #     # else:
+        #     #     self.__current_term = term
+        #     #     if (voted_for != candidate_id):
+        #     #         self.__voted_for = candidate_id
+        #     else:
+        #         if (term == current_term and voted_for != candidate_id):
+        #             return False
+        #         elif (term > current_term):
+        #             self.__current_term = term
+        #             self.__voted_for = candidate_id
+        #             print("Voted for: ", self.__voted_for)
+                
+        # return self.__voted_for == candidate_id
+        if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE:
+            print("Vote rejected for:", candidate_id)
+            return False
+        
+        self.__last_term = term
+        self.__voted_for = candidate_id
+        print("Voted for: ", self.__voted_for)
+        self.__last_heartbeat_time = time.time()
+        self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+
+        return True
+
+    def handle_heartbeat(self, term):
+        print("Heartbeat received")
+        #if received heartbeat and is leader, check is received term greater than current term
+        #if greater, become follower and update current term
+
+        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
+            if(term > self.__current_term) :
+                print("stepping down")
+                self.__current_term = term
+                self.__current_role = Role.FOLLOWER
+
+        # with self.__rw_locks["current_role"].w_locked():
+        #     self.__current_role = Role.FOLLOWER
+
+        self.__last_heartbeat_time = time.time()
+        # self.start_timer()
 
     def hearbeat_loop(self):
-        while True :
+        #count = 0
+        while self.__current_role == Role.LEADER:
             elapsed_time = time.time() - self.__last_heartbeat_time
-            if(elapsed_time > self.__heartbeat_timeout) :
-                self.send_heartbeat()
 
+            #stop if conut more than 50
+            # if(count > 50) :
+            #     return
+            if(elapsed_time > 0.1) :
+                self.send_heartbeat()
+                #count += 1
                 self.__last_heartbeat_time = time.time()
 
-            # randomize heartbeat timeout
-            time.sleep(self.__heartbeat_timeout * random.uniform(0.5, 1.5))
-
     def send_heartbeat(self):
-        print("Sending heartbeat")
-        
         # loop through all known address
         with self.__rw_locks["current_known_address"].r_locked() :
             for address in self.__current_known_address :
-                # skip if address is current server address
+                    # skip if address is current server address
                     if(address == self.__config.get("SERVER_ADDRESS")) :
                         continue
                     
+                    print("Sending heartbeat to {}".format(address))
                     # send heartbeat to address
                     conn = create_connection(address)
                     asyncio.run(
                         dynamically_call_procedure(
                             conn,
                             "handle_heartbeat",
+                            serialize(self.__current_term)
                         )
                     )
-            
 
     def start_heartbeat(self):
-        print("Starting heartbeat")
-        heartbeat_thread = threading.Thread(target=self.hearbeat_loop)
-        heartbeat_thread.daemon = True
-        heartbeat_thread.start()
-
-
+        count = 0
+        while self.__current_role == Role.LEADER and count < 10 :
+            print("Starting heartbeat")
+            self.send_heartbeat()
+            count +=1
+        
+            time.sleep(self.__heartbeat_interval)
 
 @rpyc.service
 class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
@@ -1134,6 +1347,20 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         print("Current State Log:", self.__node.get_state_log())
 
     @rpyc.exposed
-    def handle_heartbeat(self) -> None:
-        self.__node.handle_heartbeat()
+    def handle_heartbeat(self, raw_term: bytes) -> None:
+        term: int = deserialize(raw_term)
+        self.__node.handle_heartbeat(term)
     
+    @rpyc.exposed
+    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> bool:
+        term: int = deserialize(raw_term)
+        candidate_address: Address = deserialize(raw_candidate_address)
+
+        return self.__node.request_vote(term, candidate_address)
+    
+    @rpyc.exposed
+    def become_follower(self, raw_term: bytes, raw_leader_address: bytes) -> None:
+        term: int = deserialize(raw_term)
+        leader_address: Address = deserialize(raw_leader_address)
+
+        self.__node.become_follower(leader_address, term)
