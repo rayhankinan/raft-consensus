@@ -59,9 +59,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Persistent state on all servers
     __membership_log: list[MembershipLog] = __storage.get_membership_log()
     __state_log: list[StateLog] = __storage.get_state_log()
-    __current_term: int = __storage.get_current_term()  # NOTE: Janlup disave
-    __voted_for: Address = __storage.get_voted_for()  # NOTE: Janlup disave
-    # NOTE: Janlup disave
+    __current_term: int = __storage.get_current_term()
+    __voted_for: Address = __storage.get_voted_for()
     __current_leader_address: Address = __storage.get_current_leader_address()
 
     # Volatile queue state on all servers
@@ -73,18 +72,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __current_known_address: dict[Address, ServerInfo] = {}
     __known_address_commit_index = 0
     __known_address_last_applied = 0
-
-    # Other state
     __current_role: Role = Role.FOLLOWER
 
-    # Hearbeat
+    # Heartbeat: TODO Tambahkan lock
     __heartbeat_interval: float = 1.0
     __heartbeat_timeout: float = random.uniform(3.0, 4.0)
     __last_heartbeat_time = time.time()
 
-    # Threads
-    heartbeat_thread: threading.Thread
-    timeout_thread: threading.Thread
+    # Threads: TODO Tambahkan lock
+    __heartbeat_thread: threading.Thread
+    __timeout_thread: threading.Thread
 
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
@@ -239,16 +236,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         raise RuntimeError("Failed to initialize")
 
                 # heartbeat
-                self.heartbeat_thread = threading.Thread(
+                self.__heartbeat_thread = threading.Thread(
                     target=self.start_heartbeat)
-                self.heartbeat_thread.daemon = True
-                self.heartbeat_thread.start()
+                self.__heartbeat_thread.daemon = True
+                self.__heartbeat_thread.start()
 
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
-            self.timeout_thread = threading.Thread(target=self.check_timeout)
-            self.timeout_thread.daemon = True
-            self.timeout_thread.start()
+            self.__timeout_thread = threading.Thread(target=self.check_timeout)
+            self.__timeout_thread.daemon = True
+            self.__timeout_thread.start()
 
     # Public Method (Write)
     def add_server(self, follower_addresses: Tuple[Address, ...]) -> None:
@@ -710,7 +707,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                                 msg
                                                             )
                                                     case "DEQUEUE":
-                                                        self.__state_machine.get()
+                                                        result = self.__state_machine.get()
+                                                        print(
+                                                            "Dequeued:",
+                                                            result
+                                                        )
                                                     case _:
                                                         raise RuntimeError(
                                                             "Invalid log command")
@@ -1139,9 +1140,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Failed to handle election win")
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
-        self.heartbeat_thread = threading.Thread(target=self.start_heartbeat)
-        self.heartbeat_thread.daemon = True
-        self.heartbeat_thread.start()
+        self.__heartbeat_thread = threading.Thread(target=self.start_heartbeat)
+        self.__heartbeat_thread.daemon = True
+        self.__heartbeat_thread.start()
 
     def request_vote(self, term: int, candidate_address: Address, state_commit_index: int) -> bool:
         with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
