@@ -963,16 +963,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         while True:
             with self.__rw_locks["current_role"].r_locked():
                 if self.__current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:
-                    self.handle_timeout()
+                    print("Heartbeat Timeout")
+                    self.start_leader_election()
 
+            # TODO: Ini jangan lupa ada lock dan rollback mechanism
             time.sleep(self.__heartbeat_timeout)
 
-    def handle_timeout(self):
-        print("Heartbeat Timeout")
-
-        self.start_leader_election()
-
-    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def start_leader_election(self):
         print(
             "Starting leader election for node",
@@ -980,49 +976,65 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         )
 
         with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
-            self.__current_role = Role.CANDIDATE
-            print("Current role:", self.__current_role)
-
-            self.__current_term += 1
-            print("Current term:", self.__current_term)
-
-            self.__storage.save_current_term(self.__current_term)
-
-        # Send request vote to all known address
-        with self.__rw_locks["current_known_address"].r_locked():
-            known_follower_addresses = {
-                address: server_info
-                for address, server_info in self.__current_known_address.items()
-                if address != self.__config.get("SERVER_ADDRESS")
-            }
-
-            raw_vote_result = asyncio.run(
-                wait_for_majority(
-                    *(
-                        dynamically_call_procedure(
-                            create_connection(address),
-                            "request_vote",
-                            serialize(self.__current_term),
-                            serialize(self.__config.get("SERVER_ADDRESS")),
-                            serialize(self.__state_commit_index)
-                        )
-                        for address, _ in known_follower_addresses.items()
-                    )
-                )
+            snapshot_current_role = copy.deepcopy(
+                self.__current_role
+            )
+            snapshot_current_term = copy.deepcopy(
+                self.__current_term
             )
 
-            vote_result = [
-                bool(deserialize(result))
-                for result in raw_vote_result if result != None
-            ]
+            try:
+                self.__current_role = Role.CANDIDATE
+                self.__current_term += 1
+                self.__storage.save_current_term(self.__current_term)
 
-            if sum(vote_result) >= len(self.__current_known_address) // 2:  # Candidate votes for itself
-                self.handle_election_win()
-                return
+                print("Current role:", self.__current_role)
+                print("Current term:", self.__current_term)
 
-        with self.__rw_locks["current_role"].w_locked():
-            print("Failed to win election")
-            self.__current_role = Role.FOLLOWER
+                # Send request vote to all known address
+                with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
+                    known_follower_addresses = {
+                        address: server_info
+                        for address, server_info in self.__current_known_address.items()
+                        if address != self.__config.get("SERVER_ADDRESS")
+                    }
+
+                    raw_vote_result = asyncio.run(
+                        wait_for_majority(
+                            *(
+                                dynamically_call_procedure(
+                                    create_connection(address),
+                                    "request_vote",
+                                    serialize(self.__current_term),
+                                    serialize(
+                                        self.__config.get(
+                                            "SERVER_ADDRESS"
+                                        )
+                                    ),
+                                    serialize(self.__state_commit_index)
+                                )
+                                for address, _ in known_follower_addresses.items()
+                            )
+                        )
+                    )
+
+                    vote_result = [
+                        bool(deserialize(result))
+                        for result in raw_vote_result if result != None
+                    ]
+
+                    # Candidate votes for itself
+                    if sum(vote_result) >= len(self.__current_known_address) // 2:
+                        self.handle_election_win()
+                    else:
+                        self.__current_role = snapshot_current_role
+                        self.__current_term = snapshot_current_term
+                        self.__storage.save_current_term(self.__current_term)
+            except:
+                self.__current_role = snapshot_current_role
+                self.__current_term = snapshot_current_term
+                self.__storage.save_current_term(self.__current_term)
+                raise RuntimeError("Failed to start leader election")
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
@@ -1234,6 +1246,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             raw_new_membership_logs
         )
         leader_commit_index: int = deserialize(raw_leader_commit_index)
+
         self.__node.append_membership_logs(
             term,
             prev_log_index,
@@ -1249,11 +1262,12 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     @rpyc.exposed
     def enqueue(self, raw_message: bytes) -> None:
         message: Tuple[str, ...] = deserialize(raw_message)
+
         self.__node.add_state("ENQUEUE", message)
 
     @rpyc.exposed
     def dequeue(self) -> None:
-        self.__node.add_state("DEQUEUE",  ())
+        self.__node.add_state("DEQUEUE", ())
 
     @rpyc.exposed
     def append_state_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_state_logs: bytes, raw_leader_commit_index: bytes) -> None:
@@ -1276,14 +1290,15 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     @rpyc.exposed
     def decrease_next_index(self, raw_address: bytes) -> None:
         address: Address = deserialize(raw_address)
+
         self.__node.decrease_next_index(address)
 
     @rpyc.exposed
     def update_next_match(self, raw_address: bytes, raw_next_index: bytes, raw_match_index: bytes) -> None:
-        # get current address from connection
         address: Address = deserialize(raw_address)
         next_index: int = deserialize(raw_next_index)
         match_index: int = deserialize(raw_match_index)
+
         self.__node.update_next_match(address, next_index, match_index)
 
     @rpyc.exposed
@@ -1294,6 +1309,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def handle_heartbeat(self, raw_term: bytes, raw_address: bytes) -> None:
         term: int = deserialize(raw_term)
         address: Address = deserialize(raw_address)
+
         self.__node.handle_heartbeat(term, address)
 
     @rpyc.exposed
@@ -1313,18 +1329,8 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
     # Procedure: Test untuk client
     @rpyc.exposed
-    def print_membership_log(self) -> None:
-        print("Membership Logs:", self.__node.get_membership_log())
-
-    # Procedure: Test untuk client
-    @rpyc.exposed
-    def print_known_address(self) -> None:
-        print("Known Address:", self.__node.get_current_known_address())
-
-    # Procedure: Test untuk client
-    @rpyc.exposed
     def print_node(self) -> None:
-        print("current known address", self.__node.get_current_known_address())
+        print("Current known address", self.__node.get_current_known_address())
         print(
             "Known Address Commit Index:",
             self.__node.get_known_address_commit_index()
