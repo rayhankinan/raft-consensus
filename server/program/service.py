@@ -1083,40 +1083,60 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def handle_election_win(self):
+        print("Election won by node")
+
         with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_leader_address"].w_locked():
-            print("Election won by node", self.__config.get("SERVER_ADDRESS"))
-
-            self.__current_role = Role.LEADER
-            self.__current_leader_address = self.__config.get("SERVER_ADDRESS")
-
-            print("Current role: ", self.__current_role)
-            print("Current term: ", self.__current_term)
-
-            self.__storage.save_current_leader_address(
+            snapshot_current_role = copy.deepcopy(
+                self.__current_role
+            )
+            snapshot_current_leader_address = copy.deepcopy(
                 self.__current_leader_address
             )
 
-        # RPC become follower to all known address
-        with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_leader_address"].r_locked():
-            known_follower_addresses = {
-                address: server_info
-                for address, server_info in self.__current_known_address.items()
-                if address != self.__config.get("SERVER_ADDRESS")
-            }
-
-            asyncio.run(
-                wait_for_majority(
-                    *(
-                        dynamically_call_procedure(
-                            create_connection(address),
-                            "become_follower",
-                            serialize(self.__current_term),
-                            serialize(self.__current_leader_address),
-                        )
-                        for address, _ in known_follower_addresses.items()
-                    )
+            try:
+                self.__current_role = Role.LEADER
+                self.__current_leader_address = self.__config.get(
+                    "SERVER_ADDRESS"
                 )
-            )
+                self.__storage.save_current_leader_address(
+                    self.__current_leader_address
+                )
+
+                print("Current role: ", self.__current_role)
+                print(
+                    "Current leader address: ",
+                    self.__current_leader_address
+                )
+
+                # RPC become follower to all known address
+                with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked():
+                    known_follower_addresses = {
+                        address: server_info
+                        for address, server_info in self.__current_known_address.items()
+                        if address != self.__config.get("SERVER_ADDRESS")
+                    }
+
+                    asyncio.run(
+                        wait_for_majority(
+                            *(
+                                dynamically_call_procedure(
+                                    create_connection(address),
+                                    "become_follower",
+                                    serialize(self.__current_term),
+                                    serialize(self.__current_leader_address),
+                                )
+                                for address, _ in known_follower_addresses.items()
+                            )
+                        )
+                    )
+
+            except:
+                self.__current_role = snapshot_current_role
+                self.__current_leader_address = snapshot_current_leader_address
+                self.__storage.save_current_leader_address(
+                    self.__current_leader_address
+                )
+                raise RuntimeError("Failed to handle election win")
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.heartbeat_thread = threading.Thread(target=self.start_heartbeat)
@@ -1140,10 +1160,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                     print("Voted for: ", self.__voted_for)
 
+                    # TODO: Ini jangan lupa ada lock dan rollback mechanism
                     self.__last_heartbeat_time = time.time()
                     self.__heartbeat_timeout = random.uniform(2.0, 3.0)
 
                     return True
+
                 except:
                     self.__voted_for = snapshot_voted_for
                     self.__storage.save_voted_for(self.__voted_for)
