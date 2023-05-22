@@ -35,10 +35,8 @@ if __name__ == "__main__":
         service=ClientService,
     )
 
-    if type(conn_0) != rpyc.Connection or type(conn_1) != rpyc.Connection or type(conn_2) != rpyc.Connection or type(conn_3) != rpyc.Connection or type(conn_4) != rpyc.Connection or type(conn_5) != rpyc.Connection or conn_0.closed or conn_1.closed or conn_2.closed or conn_3.closed or conn_4.closed or conn_5.closed:
-        raise RuntimeError("Failed to connect to server")
-
     asyncio.run(
         dynamically_call_procedure(
-            conn_5, "print_node"),
+            conn_4, "enqueue", serialize(("Testing!", ))
+        ),
     )

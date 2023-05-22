@@ -258,22 +258,22 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def add_server(self, follower_addresses: Tuple[Address, ...]) -> None:
         with self.__rw_locks["current_role"].r_locked():
             if self.__current_role != Role.LEADER:
-                with self.__rw_locks["current_leader_address"].r_locked():
-                    conn = create_connection(
-                        self.__current_leader_address
-                    )
+                # NOTE: Deleted for improving busy waiting
+                conn = create_connection(
+                    self.__current_leader_address
+                )
 
-                    if conn == None:
-                        raise RuntimeError("Leader is down")
+                if conn == None:
+                    raise RuntimeError("Leader is down")
 
-                    asyncio.run(
-                        dynamically_call_procedure(
-                            conn,
-                            "add_server",
-                            serialize(follower_addresses),
-                        )
+                asyncio.run(
+                    dynamically_call_procedure(
+                        conn,
+                        "add_server",
+                        serialize(follower_addresses),
                     )
-                    return
+                )
+                return
 
             with self.__rw_locks["current_term"].r_locked():
                 new_membership_log = MembershipLog(
@@ -643,33 +643,33 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def add_state(self, command: Literal["ENQUEUE", "DEQUEUE"], message: Tuple[str, ...]) -> None:
         with self.__rw_locks["current_role"].r_locked():
             if self.__current_role != Role.LEADER:
-                with self.__rw_locks["current_leader_address"].r_locked():
-                    conn = create_connection(
-                        self.__current_leader_address
-                    )
+                # NOTE: Deleted for improving busy waiting
+                conn = create_connection(
+                    self.__current_leader_address
+                )
 
-                    if conn == None:
-                        raise RuntimeError("Leader is down")
+                if conn == None:
+                    raise RuntimeError("Leader is down")
 
-                    match command:
-                        case "ENQUEUE":
-                            asyncio.run(
-                                dynamically_call_procedure(
-                                    conn,
-                                    "enqueue",
-                                    serialize(message),
-                                )
+                match command:
+                    case "ENQUEUE":
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "enqueue",
+                                serialize(message),
                             )
-                        case "DEQUEUE":
-                            asyncio.run(
-                                dynamically_call_procedure(
-                                    conn,
-                                    "dequeue",
-                                )
+                        )
+                    case "DEQUEUE":
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "dequeue",
                             )
-                        case _:
-                            raise RuntimeError("Invalid command")
-                    return
+                        )
+                    case _:
+                        raise RuntimeError("Invalid command")
+                return
 
             with self.__rw_locks["current_term"].r_locked():
                 new_state_log = StateLog(
@@ -863,42 +863,58 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             else:
                                 self.__state_log.append(state_log)
 
-                        final_length = len(self.__state_log)
-
-                        conn = create_connection(self.__current_leader_address)
-
-                        if conn == None:
-                            raise RuntimeError("Leader is down")
-
-                        asyncio.run(
-                            dynamically_call_procedure(
-                                conn,
-                                "update_next_match",
-                                serialize(self.__config.get("SERVER_ADDRESS")),
-                                serialize(final_length),
-                                serialize(final_length - 1)
+                        with self.__rw_locks["current_term"].r_to_w_locked():
+                            snapshot_current_term = copy.deepcopy(
+                                self.__current_term
                             )
-                        )
 
-                        with self.__rw_locks["state_last_applied"].r_locked():
-                            if leader_commit_index <= self.__state_commit_index:
-                                return
+                            try:
+                                self.__current_term = term
 
-                            with self.__rw_locks["state_commit_index"].r_to_w_locked():
-                                snapshot_state_commit_index = copy.deepcopy(
-                                    self.__state_commit_index
+                                final_length = len(self.__state_log)
+
+                                conn = create_connection(
+                                    self.__current_leader_address
                                 )
 
-                                try:
-                                    self.__state_commit_index = min(
-                                        leader_commit_index,
-                                        final_length,
+                                if conn == None:
+                                    raise RuntimeError("Leader is down")
+
+                                asyncio.run(
+                                    dynamically_call_procedure(
+                                        conn,
+                                        "update_next_match",
+                                        serialize(self.__config.get(
+                                            "SERVER_ADDRESS")),
+                                        serialize(final_length),
+                                        serialize(final_length - 1)
                                     )
-                                except:
-                                    self.__state_commit_index = snapshot_state_commit_index
-                                    raise RuntimeError(
-                                        "Failed to update known address commit index"
-                                    )
+                                )
+
+                                with self.__rw_locks["state_last_applied"].r_locked():
+                                    if leader_commit_index <= self.__state_commit_index:
+                                        return
+
+                                    with self.__rw_locks["state_commit_index"].r_to_w_locked():
+                                        snapshot_state_commit_index = copy.deepcopy(
+                                            self.__state_commit_index
+                                        )
+
+                                        try:
+                                            self.__state_commit_index = min(
+                                                leader_commit_index,
+                                                final_length,
+                                            )
+                                        except:
+                                            self.__state_commit_index = snapshot_state_commit_index
+                                            raise RuntimeError(
+                                                "Failed to update known address commit index"
+                                            )
+                            except:
+                                self.__current_term = snapshot_current_term
+                                raise RuntimeError(
+                                    "Failed to update current term"
+                                )
                     except:
                         self.__state_log = snapshot_state_log
                         self.__storage.save_state_log(
@@ -1124,8 +1140,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         bool(deserialize(result))
                         for result in raw_vote_result if result != None
                     ]
-
-                    print(vote_result)
 
                     # Candidate votes for itself
                     if sum(vote_result) >= len(self.__current_known_address) // 2:
@@ -1436,10 +1450,14 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         message: Tuple[str, ...] = deserialize(raw_message)
 
         self.__node.add_state("ENQUEUE", message)
+        print(self.__node.get_state_log())
+        print(self.__node.get_state_machine())
 
     @rpyc.exposed
     def dequeue(self) -> None:
         self.__node.add_state("DEQUEUE", ())
+        print(self.__node.get_state_log())
+        print(self.__node.get_state_machine())
 
     @rpyc.exposed
     def append_state_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_state_logs: bytes, raw_leader_commit_index: bytes) -> None:
@@ -1476,6 +1494,9 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     @rpyc.exposed
     def commit_state_logs(self) -> None:
         self.__node.commit_state_logs()
+
+        print(self.__node.get_state_log())
+        print(self.__node.get_state_machine())
 
     @rpyc.exposed
     def handle_heartbeat(self, raw_term: bytes, raw_address: bytes) -> None:
