@@ -59,8 +59,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Persistent state on all servers
     __membership_log: list[MembershipLog] = __storage.get_membership_log()
     __state_log: list[StateLog] = __storage.get_state_log()
-    __current_term: int = __storage.get_current_term()
-    __voted_for: Address = __storage.get_voted_for()
+    __current_term: int = __storage.get_current_term()  # NOTE: Janlup disave
+    __voted_for: Address = __storage.get_voted_for()  # NOTE: Janlup disave
+    # NOTE: Janlup disave
     __current_leader_address: Address = __storage.get_current_leader_address()
 
     # Volatile queue state on all servers
@@ -1129,7 +1130,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     #     #stop self timer and start heartbeat
     #     self.start_heartbeat()
     #     self.start_timer()
-    
+
     def request_vote(self, term, candidate_id, state_commit_index) -> bool:
         # time.sleep(1)
         # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked():
@@ -1369,13 +1370,13 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         self.__node.handle_heartbeat(term, address)
 
     @rpyc.exposed
-    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes, raw_state_commit_index : bytes) -> bool:
+    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes, raw_state_commit_index: bytes) -> bool:
         term: int = deserialize(raw_term)
         candidate_address: Address = deserialize(raw_candidate_address)
         state_commit_index: int = deserialize(raw_state_commit_index)
 
         return self.__node.request_vote(term, candidate_address, state_commit_index)
-    
+
     @rpyc.exposed
     def become_follower(self, raw_term: bytes, raw_leader_address: bytes) -> None:
         term: int = deserialize(raw_term)
