@@ -21,17 +21,17 @@ async def wait_for_all(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Opti
     try:
         return await asyncio.gather(*args)
     except:
-        # Jika ada error, maka return list kosong
+        # Jika ada timeout, maka return list kosong
         return []
 
 
 async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
+    completed = 0
+    results: list[Optional[bytes]] = []
+
     try:
         length = len(args)
         threshold = length // 2 + 1
-
-        completed = 0
-        results: list[Optional[bytes]] = []
 
         # Membuat list of task
         tasks = [asyncio.create_task(arg) for arg in args]
@@ -49,8 +49,8 @@ async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list
 
         return results
     except:
-        # Jika ada error, maka return list kosong
-        return []
+        # Jika ada timeout, maka return list yang sudah terkumpul
+        return results
 
 
 def serialize(value: Any) -> bytes:
