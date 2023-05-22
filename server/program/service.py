@@ -1165,7 +1165,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         return True
 
-    def handle_heartbeat(self, term):
+    def handle_heartbeat(self, term, adress):
         print("Heartbeat received")
         #if received heartbeat and is leader, check is received term greater than current term
         #if greater, become follower and update current term
@@ -1175,6 +1175,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 print("stepping down")
                 self.__current_term = term
                 self.__current_role = Role.FOLLOWER
+
+        #if address received is not current leader address, update current leader address
+        with self.__rw_locks["current_leader_address"].w_locked():
+            if(adress != self.__current_leader_address) :
+                self.__current_leader_address = adress
 
         # with self.__rw_locks["current_role"].w_locked():
         #     self.__current_role = Role.FOLLOWER
@@ -1210,7 +1215,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         dynamically_call_procedure(
                             conn,
                             "handle_heartbeat",
-                            serialize(self.__current_term)
+                            serialize(self.__current_term),
+                            serialize(self.__config.get("SERVER_ADDRESS")),
                         )
                     )
 
@@ -1347,9 +1353,10 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         print("Current State Log:", self.__node.get_state_log())
 
     @rpyc.exposed
-    def handle_heartbeat(self, raw_term: bytes) -> None:
+    def handle_heartbeat(self, raw_term: bytes, raw_address) -> None:
         term: int = deserialize(raw_term)
-        self.__node.handle_heartbeat(term)
+        address: Address = deserialize(raw_address)
+        self.__node.handle_heartbeat(term, address)
     
     @rpyc.exposed
     def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> bool:
