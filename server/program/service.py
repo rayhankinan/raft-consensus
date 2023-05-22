@@ -1121,7 +1121,76 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                     # Candidate votes for itself
                     if sum(vote_result) >= len(self.__current_known_address) // 2:
-                        self.handle_election_win()
+                        print("Election won by node")
+
+                        with self.__rw_locks["current_leader_address"].w_locked():
+                            snapshot_current_role = copy.deepcopy(
+                                self.__current_role
+                            )
+                            snapshot_current_leader_address = copy.deepcopy(
+                                self.__current_leader_address
+                            )
+
+                            try:
+                                self.__current_role = Role.LEADER
+                                self.__current_leader_address = self.__config.get(
+                                    "SERVER_ADDRESS"
+                                )
+                                self.__storage.save_current_leader_address(
+                                    self.__current_leader_address
+                                )
+
+                                print("Current role: ", self.__current_role)
+                                print(
+                                    "Current leader address: ",
+                                    self.__current_leader_address
+                                )
+
+                                # RPC become follower to all known address
+                                known_follower_addresses = {
+                                    address: server_info
+                                    for address, server_info in self.__current_known_address.items()
+                                    if address != self.__config.get("SERVER_ADDRESS")
+                                }
+
+                                list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                ]
+
+                                for address, _ in known_follower_addresses.items():
+                                    conn = create_connection(address)
+
+                                    if conn != None:
+                                        list_of_coroutine.append(
+                                            dynamically_call_procedure(
+                                                conn,
+                                                "become_follower",
+                                                serialize(
+                                                    self.__current_term),
+                                                serialize(
+                                                    self.__current_leader_address),
+                                            )
+                                        )
+
+                                asyncio.run(
+                                    wait_for_majority(
+                                        *list_of_coroutine
+                                    )
+                                )
+
+                            except:
+                                self.__current_role = snapshot_current_role
+                                self.__current_leader_address = snapshot_current_leader_address
+                                self.__storage.save_current_leader_address(
+                                    self.__current_leader_address
+                                )
+                                raise RuntimeError(
+                                    "Failed to handle election win")
+
+                        # TODO: Ini jangan lupa ada lock dan rollback mechanism
+                        self.__heartbeat_thread = threading.Thread(
+                            target=self.start_heartbeat)
+                        self.__heartbeat_thread.daemon = True
+                        self.__heartbeat_thread.start()
                     else:
                         self.__current_role = Role.FOLLOWER
             except:
@@ -1177,76 +1246,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(1.5, 3.0)
-
-    # TODO: Ini jangan lupa ada lock dan rollback mechanism
-    def handle_election_win(self):
-        print("Election won by node")
-
-        with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_leader_address"].w_locked():
-            snapshot_current_role = copy.deepcopy(
-                self.__current_role
-            )
-            snapshot_current_leader_address = copy.deepcopy(
-                self.__current_leader_address
-            )
-
-            try:
-                self.__current_role = Role.LEADER
-                self.__current_leader_address = self.__config.get(
-                    "SERVER_ADDRESS"
-                )
-                self.__storage.save_current_leader_address(
-                    self.__current_leader_address
-                )
-
-                print("Current role: ", self.__current_role)
-                print(
-                    "Current leader address: ",
-                    self.__current_leader_address
-                )
-
-                # RPC become follower to all known address
-                with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked():
-                    known_follower_addresses = {
-                        address: server_info
-                        for address, server_info in self.__current_known_address.items()
-                        if address != self.__config.get("SERVER_ADDRESS")
-                    }
-
-                    list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
-                    ]
-
-                    for address, _ in known_follower_addresses.items():
-                        conn = create_connection(address)
-
-                        if conn != None:
-                            list_of_coroutine.append(
-                                dynamically_call_procedure(
-                                    conn,
-                                    "become_follower",
-                                    serialize(self.__current_term),
-                                    serialize(self.__current_leader_address),
-                                )
-                            )
-
-                    asyncio.run(
-                        wait_for_majority(
-                            *list_of_coroutine
-                        )
-                    )
-
-            except:
-                self.__current_role = snapshot_current_role
-                self.__current_leader_address = snapshot_current_leader_address
-                self.__storage.save_current_leader_address(
-                    self.__current_leader_address
-                )
-                raise RuntimeError("Failed to handle election win")
-
-        # TODO: Ini jangan lupa ada lock dan rollback mechanism
-        self.__heartbeat_thread = threading.Thread(target=self.start_heartbeat)
-        self.__heartbeat_thread.daemon = True
-        self.__heartbeat_thread.start()
 
     def request_vote(self, term: int, candidate_address: Address, state_commit_index: int) -> bool:
         with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
