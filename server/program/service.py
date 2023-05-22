@@ -4,7 +4,6 @@ import asyncio
 import rpyc
 import threading
 import random
-from threading import Lock
 from queue import Queue
 from typing import Any, Coroutine, Literal, Tuple, Optional
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
@@ -29,7 +28,7 @@ def create_connection(address: Address) -> Optional[rpyc.Connection]:
 
 class RaftNodeMeta(type):  # Thread Safe Singleton
     __instances = {}
-    __lock: Lock = Lock()
+    __lock: threading.Lock = threading.Lock()
 
     def __call__(cls, *args, **kwargs):
         with cls.__lock:
