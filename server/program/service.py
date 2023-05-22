@@ -1007,11 +1007,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             self.__current_term += 1
             print("Current term:", self.__current_term)
 
-        # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked() :
-        #     self.__current_term += 1
-        #     print("Current term: ", self.__current_term)
-        #     # current_term = self.__current_term + 1
-        #     self.__voted_for = self.__config.get("SERVER_ADDRESS")
+            self.__storage.save_current_term(self.__current_term)
+
 
         votes_received = 1
         total_nodes = len(self.__current_known_address)
@@ -1020,10 +1017,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         # send request vote to all known address
         with self.__rw_locks["current_known_address"].r_locked():
             for address in self.__current_known_address:
-                # if role changed mid election, leader election is cancelled
-                # if(self.__current_role != Role.CANDIDATE) :
-                #     return
-                # skip if address is current server address
                 if (address == self.__config.get("SERVER_ADDRESS")):
                     continue
 
@@ -1079,6 +1072,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             print("Current role: ", self.__current_role)
             self.__current_term = term
             print("Current term: ", self.__current_term)
+            self.__storage.save_current_term(self.__current_term)
 
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(1.5, 3.0)
@@ -1125,43 +1119,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
         self.hearbeat_thread.daemon = True
         self.hearbeat_thread.start()
-        # with self.__rw_locks["current_role"].w_locked() :
-        #     self.__current_role = Role.FOLLOWER
-        #     print("Current role: ", self.__current_role)
-
-    # def handle_election_win(self):
-    #     print("Election won")
-    #     with self.__rw_locks["current_role"].w_locked() :
-    #         self.__current_role = Role.LEADER
-    #         print("Current role: ", self.__current_role)
-
-    #     #stop self timer and start heartbeat
-    #     self.start_heartbeat()
-    #     self.start_timer()
     
     def request_vote(self, term, candidate_id, state_commit_index) -> bool:
-        # time.sleep(1)
-        # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked():
-        #     current_term = self.__current_term
-        #     print("Current term on request: ", current_term)
-        #     voted_for = self.__voted_for
-        #     print("Voted for on request: ", voted_for)
 
-        #     if (term < current_term):
-        #         return False
-        #     # else:
-        #     #     self.__current_term = term
-        #     #     if (voted_for != candidate_id):
-        #     #         self.__voted_for = candidate_id
-        #     else:
-        #         if (term == current_term and voted_for != candidate_id):
-        #             return False
-        #         elif (term > current_term):
-        #             self.__current_term = term
-        #             self.__voted_for = candidate_id
-        #             print("Voted for: ", self.__voted_for)
-
-        # return self.__voted_for == candidate_id
         if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
             print("Vote rejected for:", candidate_id)
             return False
@@ -1171,6 +1131,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         print("Voted for: ", self.__voted_for)
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+
+        #save voted for 
+        self.__storage.save_voted_for(self.__voted_for)
 
         return True
 
@@ -1183,6 +1146,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 print("stepping down")
                 self.__current_term = term
                 self.__current_role = Role.FOLLOWER
+                self.__storage.save_current_term(self.__current_term)
 
         # if address received is not current leader address, update current leader address
         with self.__rw_locks["current_leader_address"].w_locked():
@@ -1193,7 +1157,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #     self.__current_role = Role.FOLLOWER
 
         self.__last_heartbeat_time = time.time()
-        # self.start_timer()
 
     def hearbeat_loop(self):
         # count = 0
