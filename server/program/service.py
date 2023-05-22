@@ -947,16 +947,14 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             )
 
             try:
-                for known_address, serverinfo in self.__current_known_address.items():
-                    if known_address.get_hostname() == address.get_hostname() and known_address.get_port() == address.get_port():
-                        newServerInfo = ServerInfo(
-                            serverinfo.next_index,
-                            serverinfo.match_index,
-                            next_index,
-                            match_index
-                        )
-                        self.__current_known_address[known_address] = newServerInfo
-                        break
+                newServerInfo = ServerInfo(
+                    self.__current_known_address[address].next_index,
+                    self.__current_known_address[address].match_index,
+                    next_index,
+                    match_index
+                )
+                self.__current_known_address[address] = newServerInfo
+
             except:
                 self.__current_known_address = snapshot_current_known_address
                 raise RuntimeError("Failed to update next index")
