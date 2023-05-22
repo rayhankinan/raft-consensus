@@ -1029,6 +1029,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             "request_vote",
                             serialize(self.__current_term),
                             serialize(self.__config.get("SERVER_ADDRESS")),
+                            serialize(self.__state_commit_index)
                         )
                     )
 
@@ -1130,7 +1131,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     #     self.start_heartbeat()
     #     self.start_timer()
     
-    def request_vote(self, term, candidate_id):
+    def request_vote(self, term, candidate_id, state_commit_index) -> bool:
         # time.sleep(1)
         # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked():
         #     current_term = self.__current_term
@@ -1153,7 +1154,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #             print("Voted for: ", self.__voted_for)
                 
         # return self.__voted_for == candidate_id
-        if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE:
+        if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
             print("Vote rejected for:", candidate_id)
             return False
         
@@ -1356,11 +1357,12 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         self.__node.handle_heartbeat(term, address)
     
     @rpyc.exposed
-    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes) -> bool:
+    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes, raw_state_commit_index : bytes) -> bool:
         term: int = deserialize(raw_term)
         candidate_address: Address = deserialize(raw_candidate_address)
+        state_commit_index: int = deserialize(raw_state_commit_index)
 
-        return self.__node.request_vote(term, candidate_address)
+        return self.__node.request_vote(term, candidate_address, state_commit_index)
     
     @rpyc.exposed
     def become_follower(self, raw_term: bytes, raw_leader_address: bytes) -> None:
