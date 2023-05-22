@@ -1064,7 +1064,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             print("Current role: ", self.__current_role)
             self.__current_term = term
             print("Current term: ", self.__current_term)
+
             self.__storage.save_current_term(self.__current_term)
+            self.__storage.save_current_leader_address(self.__current_leader_address)
 
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(1.5, 3.0)
@@ -1079,6 +1081,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             self.__current_leader_address = self.__config.get("SERVER_ADDRESS")
             print("Current role: ", self.__current_role)
             print("Current term: ", self.__current_term)
+
+            self.__storage.save_current_leader_address(self.__current_leader_address)
 
             # stop self timer and start heartbeat
         # self.start_timer()
@@ -1144,6 +1148,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         with self.__rw_locks["current_leader_address"].w_locked():
             if (adress != self.__current_leader_address and term >= self.__current_term):
                 self.__current_leader_address = adress
+                self.__storage.save_current_leader_address(self.__current_leader_address)
 
         # with self.__rw_locks["current_role"].w_locked():
         #     self.__current_role = Role.FOLLOWER
