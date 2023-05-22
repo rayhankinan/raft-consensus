@@ -714,7 +714,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
                                                     case _:
                                                         raise RuntimeError(
-                                                            "Invalid log command")
+                                                            "Invalid log command"
+                                                        )
 
                                                 self.__state_last_applied += 1
 
@@ -961,11 +962,17 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def check_timeout(self) -> None:
         time.sleep(1)
 
+        current_role: Role
+        with self.__rw_locks["current_role"].r_locked():
+            current_role = self.__current_role
+
         while True:
             with self.__rw_locks["current_role"].r_locked():
-                if self.__current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:  # TODO: Ini jangan lupa ada lock
-                    print("Heartbeat Timeout")
-                    self.start_leader_election()
+                current_role = self.__current_role
+
+            if current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:  # TODO: Ini jangan lupa ada lock
+                print("Heartbeat Timeout")
+                self.start_leader_election()
 
             # TODO: Ini jangan lupa ada lock
             time.sleep(self.__heartbeat_timeout)
@@ -1204,6 +1211,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             )
 
     def start_heartbeat(self):
+        current_role: Role
         with self.__rw_locks["current_role"].r_locked():
             current_role = self.__current_role
 
