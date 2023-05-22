@@ -900,11 +900,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #         self.handle_timeout()
 
         #     time.sleep(self.__heartbeat_timeout)
+        time.sleep(1)
         while True:
             if self.__current_role != Role.LEADER:
                 if (time.time() - self.__last_heartbeat_time) > self.__heartbeat_timeout:
                     self.handle_timeout()
-            time.sleep(0.1)
+            time.sleep(self.__heartbeat_timeout)
     
     def start_timer(self) :
         #print("Starting timer")
@@ -1000,7 +1001,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             print("Current term: ", self.__current_term)
 
         self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+        self.__heartbeat_timeout = random.uniform(1.5, 3.0)
 
     def handle_election_win(self):
         # time.sleep(1)
@@ -1098,16 +1099,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #if received heartbeat and is leader, check is received term greater than current term
         #if greater, become follower and update current term
 
-        # with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
-        #     if(term > self.__current_term) :
-        #         print("stepping down")
-        #         self.__current_term = term
-        #         self.__current_role = Role.FOLLOWER
-        with self.__rw_locks["current_role"].w_locked():
-            self.__current_role = Role.FOLLOWER
+        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
+            if(term > self.__current_term) :
+                print("stepping down")
+                self.__current_term = term
+                self.__current_role = Role.FOLLOWER
+
+        # with self.__rw_locks["current_role"].w_locked():
+        #     self.__current_role = Role.FOLLOWER
 
         self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(0.2, 0.3)
         # self.start_timer()
 
     def hearbeat_loop(self):
@@ -1115,7 +1116,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         while self.__current_role == Role.LEADER:
             elapsed_time = time.time() - self.__last_heartbeat_time
 
-            if(count >= 20) :
+            #stop if conut more than 50
+            if(count > 50) :
                 return
             if(elapsed_time > 0.1) :
                 self.send_heartbeat()
@@ -1142,9 +1144,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     )
 
     def start_heartbeat(self):
-        while self.__current_role == Role.LEADER:
+        count = 0
+        while self.__current_role == Role.LEADER and count < 10 :
             print("Starting heartbeat")
             self.send_heartbeat()
+            count +=1
         
             time.sleep(self.__heartbeat_interval)
 
