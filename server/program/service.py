@@ -1189,7 +1189,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     def start_heartbeat(self):
         count = 0
-        while self.__current_role == Role.LEADER and count < 10:
+        while self.__current_role == Role.LEADER:
             self.send_heartbeat()
             count += 1
 
