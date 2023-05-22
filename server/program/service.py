@@ -8,7 +8,7 @@ from threading import Lock
 from queue import Queue
 from typing import Any, Coroutine, Literal, Tuple, Optional
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
-from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, wait_for_all, serialize, deserialize
+from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_x, wait_for_all, serialize, deserialize
 
 
 def create_connection(address: Address) -> Optional[rpyc.Connection]:
@@ -78,12 +78,13 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Heartbeat: TODO Tambahkan lock
     __heartbeat_interval: float = 1.0
-    __heartbeat_timeout: float = random.uniform(3.0, 4.0)
+    __heartbeat_timeout: float = random.uniform(4.0, 5.0)
     __last_heartbeat_time = time.time()
 
     # Threads: TODO Tambahkan lock
     __heartbeat_thread: threading.Thread
     __timeout_thread: threading.Thread
+    __election_thread: threading.Thread
 
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
@@ -248,7 +249,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__heartbeat_thread.start()
 
             self.__last_heartbeat_time = time.time()
-            self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+            self.__heartbeat_timeout = random.uniform(4.0, 5.0)
             self.__timeout_thread = threading.Thread(target=self.check_timeout)
             self.__timeout_thread.daemon = True
             self.__timeout_thread.start()
@@ -331,7 +332,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         )
 
                                 asyncio.run(
-                                    wait_for_majority(
+                                    wait_for_x(
+                                        len(self.__current_known_address) // 2,
                                         *list_of_coroutine
                                     )
                                 )
@@ -418,7 +420,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
 
                                                 asyncio.run(
-                                                    wait_for_majority(
+                                                    wait_for_x(
+                                                        len(self.__current_known_address) // 2,
                                                         *list_of_coroutine
                                                     )
                                                 )
@@ -725,7 +728,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         )
 
                                 asyncio.run(
-                                    wait_for_majority(
+                                    wait_for_x(
+                                        len(self.__current_known_address) // 2,
                                         *list_of_coroutine
                                     )
                                 )
@@ -799,7 +803,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
 
                                                 asyncio.run(
-                                                    wait_for_majority(
+                                                    wait_for_x(
+                                                        len(self.__current_known_address) // 2,
                                                         *list_of_coroutine
                                                     )
                                                 )
@@ -826,6 +831,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Term is too old")
 
             with self.__rw_locks["state_log"].r_locked():
+                print("Prev Log Index", prev_log_index)
                 if prev_log_index >= 0 and self.__state_log[prev_log_index].term != prev_log_term:
                     conn = create_connection(self.__current_leader_address)
 
@@ -1053,7 +1059,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             with self.__rw_locks["current_role"].r_locked():
                 current_role = self.__current_role
 
-            if current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:  # TODO: Ini jangan lupa ada lock
+            if current_role == Role.FOLLOWER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:  # TODO: Ini jangan lupa ada lock
                 print("Heartbeat Timeout")
                 self.start_leader_election()
 
@@ -1109,7 +1115,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             )
 
                     raw_vote_result = asyncio.run(
-                        wait_for_majority(
+                        wait_for_x(
+                            len(self.__current_known_address) // 2,
                             *list_of_coroutine
                         )
                     )
@@ -1118,6 +1125,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         bool(deserialize(result))
                         for result in raw_vote_result if result != None
                     ]
+
+                    print(vote_result)
 
                     # Candidate votes for itself
                     if sum(vote_result) >= len(self.__current_known_address) // 2:
@@ -1172,7 +1181,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         )
 
                                 asyncio.run(
-                                    wait_for_majority(
+                                    wait_for_x(
+                                        len(self.__current_known_address) // 2,
                                         *list_of_coroutine
                                     )
                                 )
@@ -1201,7 +1211,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+        self.__heartbeat_timeout = random.uniform(4.0, 5.0)
 
     def become_follower(self, address, term):
         print("Become follower")
@@ -1245,7 +1255,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(1.5, 3.0)
+        self.__heartbeat_timeout = random.uniform(4.0, 5.0)
 
     def request_vote(self, term: int, candidate_address: Address, state_commit_index: int) -> bool:
         with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
@@ -1273,7 +1283,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                     # TODO: Ini jangan lupa ada lock dan rollback mechanism
                     self.__last_heartbeat_time = time.time()
-                    self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+                    self.__heartbeat_timeout = random.uniform(4.0, 5.0)
 
                     return True
 
@@ -1309,7 +1319,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     )
 
             asyncio.run(
-                wait_for_majority(
+                wait_for_x(
+                    len(self.__current_known_address) // 2,
                     *list_of_coroutine
                 )
             )

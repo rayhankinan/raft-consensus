@@ -25,13 +25,12 @@ async def wait_for_all(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Opti
         return []
 
 
-async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
+async def wait_for_x(x: int, *args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
     completed = 0
     results: list[Optional[bytes]] = []
 
     try:
-        length = len(args)
-        threshold = length // 2 + 1
+        threshold = x
 
         # Membuat list of task
         tasks = [asyncio.create_task(arg) for arg in args]
