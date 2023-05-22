@@ -1149,22 +1149,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             )
 
     def start_heartbeat(self):
-        current_role = self.__current_role
+        with self.__rw_locks["current_role"].r_locked():
+            current_role = self.__current_role
 
         while current_role == Role.LEADER:
             self.send_heartbeat()
             time.sleep(self.__heartbeat_interval)
 
-            with self.__rw_locks["current_role"].w_locked():
-                snapshot_current_role = copy.deepcopy(
-                    self.__current_role
-                )
-
-                try:
-                    current_role = self.__current_role
-                except:
-                    self.__current_role = snapshot_current_role
-                    raise RuntimeError("Failed to update current role")
+            with self.__rw_locks["current_role"].r_locked():
+                current_role = self.__current_role
 
     # TODO: Ini jangan lupa ada rollback mechanism
     def handle_heartbeat(self, term: int, address: Address):
