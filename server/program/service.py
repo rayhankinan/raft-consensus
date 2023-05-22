@@ -990,57 +990,51 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         self.start_leader_election()
 
     def start_leader_election(self):
-        print("Starting leader election for node",
-              self.__config.get("SERVER_ADDRESS"))
+        print(
+            "Starting leader election for node",
+            self.__config.get("SERVER_ADDRESS")
+        )
 
         with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
             self.__current_role = Role.CANDIDATE
             print("Current role:", self.__current_role)
+
             self.__current_term += 1
             print("Current term:", self.__current_term)
 
             self.__storage.save_current_term(self.__current_term)
 
-
-        votes_received = 1
-        total_nodes = len(self.__current_known_address)
-        majority = total_nodes // 2 + 1
-
-        # send request vote to all known address
+        # Send request vote to all known address
         with self.__rw_locks["current_known_address"].r_locked():
-            for address in self.__current_known_address:
-                if (address == self.__config.get("SERVER_ADDRESS")):
-                    continue
+            known_follower_addresses = {
+                address: server_info
+                for address, server_info in self.__current_known_address.items()
+                if address != self.__config.get("SERVER_ADDRESS")
+            }
 
-                # send request vote to address
-                print("Sending request vote to", address)
-                conn = create_connection(address)
-                try:
-                    vote_result = asyncio.run(
+            raw_vote_result = asyncio.run(
+                wait_for_majority(
+                    *(
                         dynamically_call_procedure(
-                            conn,
+                            create_connection(address),
                             "request_vote",
                             serialize(self.__current_term),
                             serialize(self.__config.get("SERVER_ADDRESS")),
                             serialize(self.__state_commit_index)
                         )
+                        for address, _ in known_follower_addresses.items()
                     )
+                )
+            )
 
-                    # time.sleep(1)
-                    # if self.__current_role != Role.CANDIDATE:
-                    #     return
+            vote_result = [
+                bool(deserialize(result))
+                for result in raw_vote_result if result != None
+            ]
 
-                    if vote_result:
-                        votes_received += 1
-                except:
-                    print("Failed to request vote to {}".format(address))
-                    continue
-
-        print("Votes received:", votes_received)
-        if (votes_received >= majority):
-            # print("Current role before win: ", self.__current_role)
-            self.handle_election_win()
-            return
+            if sum(vote_result) >= len(self.__current_known_address) // 2:  # Candidate votes for itself
+                self.handle_election_win()
+                return
 
         with self.__rw_locks["current_role"].w_locked():
             self.__current_role = Role.FOLLOWER
@@ -1066,7 +1060,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             print("Current term: ", self.__current_term)
 
             self.__storage.save_current_term(self.__current_term)
-            self.__storage.save_current_leader_address(self.__current_leader_address)
+            self.__storage.save_current_leader_address(
+                self.__current_leader_address)
 
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(1.5, 3.0)
@@ -1082,7 +1077,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             print("Current role: ", self.__current_role)
             print("Current term: ", self.__current_term)
 
-            self.__storage.save_current_leader_address(self.__current_leader_address)
+            self.__storage.save_current_leader_address(
+                self.__current_leader_address)
 
             # stop self timer and start heartbeat
         # self.start_timer()
@@ -1111,35 +1107,39 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     print("Failed to send become follower to {}".format(address))
                     continue
 
-        # heartbeat
+        # Heartbeat
         self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
         self.hearbeat_thread.daemon = True
         self.hearbeat_thread.start()
-    
-    def request_vote(self, term, candidate_id, state_commit_index) -> bool:
 
+    def request_vote(self, term, candidate_id, state_commit_index) -> bool:
         if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
             print("Vote rejected for:", candidate_id)
             return False
 
+        # TODO: Ini jangan lupa dilockk
+
         self.__last_term = term
         self.__voted_for = candidate_id
+
+        # Save voted for
+        self.__storage.save_voted_for(self.__voted_for)
+
         print("Voted for: ", self.__voted_for)
+
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(2.0, 3.0)
-
-        #save voted for 
-        self.__storage.save_voted_for(self.__voted_for)
 
         return True
 
     def handle_heartbeat(self, term, adress):
-        # if received heartbeat and is leader, check is received term greater than current term
-        # if greater, become follower and update current term
+        # If received heartbeat and is leader, check is received term greater than current term
+        # If greater, become follower and update current term
 
         with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
             if (term > self.__current_term):
-                print("stepping down")
+                print("Stepping down")
+
                 self.__current_term = term
                 self.__current_role = Role.FOLLOWER
                 self.__storage.save_current_term(self.__current_term)
@@ -1148,7 +1148,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         with self.__rw_locks["current_leader_address"].w_locked():
             if (adress != self.__current_leader_address and term >= self.__current_term):
                 self.__current_leader_address = adress
-                self.__storage.save_current_leader_address(self.__current_leader_address)
+                self.__storage.save_current_leader_address(
+                    self.__current_leader_address)
 
         # with self.__rw_locks["current_role"].w_locked():
         #     self.__current_role = Role.FOLLOWER

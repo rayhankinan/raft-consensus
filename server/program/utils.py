@@ -48,6 +48,7 @@ async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list
             tasks = [task for task in tasks if not task.done()]
 
         return results
+
     except:
         # Jika ada timeout, maka return list yang sudah terkumpul
         return results
