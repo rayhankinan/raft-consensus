@@ -80,7 +80,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Hearbeat
     __heartbeat_interval: float = 1.0
-    __heartbeat_timeout: float = random.uniform(2.0, 3.0)
+    __heartbeat_timeout: float = random.uniform(3.0, 4.0)
     __last_heartbeat_time = time.time()
 
     # Public Method (Read): Testing untuk client
@@ -1166,7 +1166,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         return True
 
     def handle_heartbeat(self, term, adress):
-        print("Heartbeat received")
         #if received heartbeat and is leader, check is received term greater than current term
         #if greater, become follower and update current term
 
@@ -1208,7 +1207,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     if(address == self.__config.get("SERVER_ADDRESS")) :
                         continue
                     
-                    print("Sending heartbeat to {}".format(address))
                     # send heartbeat to address
                     conn = create_connection(address)
                     asyncio.run(
@@ -1223,7 +1221,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def start_heartbeat(self):
         count = 0
         while self.__current_role == Role.LEADER and count < 10 :
-            print("Starting heartbeat")
             self.send_heartbeat()
             count +=1
         
