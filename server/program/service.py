@@ -962,18 +962,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         while True:
             with self.__rw_locks["current_role"].r_locked():
-                if self.__current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:
+                if self.__current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:  # TODO: Ini jangan lupa ada lock
                     print("Heartbeat Timeout")
                     self.start_leader_election()
 
-            # TODO: Ini jangan lupa ada lock dan rollback mechanism
+            # TODO: Ini jangan lupa ada lock
             time.sleep(self.__heartbeat_timeout)
 
     def start_leader_election(self):
-        print(
-            "Starting leader election for node",
-            self.__config.get("SERVER_ADDRESS")
-        )
+        print("Starting leader election for node")
 
         with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
             snapshot_current_role = copy.deepcopy(
@@ -1040,24 +1037,45 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(2.0, 3.0)
 
-    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def become_follower(self, address, term):
-        print("Becoming follower")
+        print("Become follower")
 
         with self.__rw_locks["current_leader_address"].w_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
-            self.__current_leader_address = address
-            print("Current leader address: ", self.__current_leader_address)
-
-            self.__current_role = Role.FOLLOWER
-            print("Current role: ", self.__current_role)
-
-            self.__current_term = term
-            print("Current term: ", self.__current_term)
-
-            self.__storage.save_current_term(self.__current_term)
-            self.__storage.save_current_leader_address(
+            snapshot_current_leader_address = copy.deepcopy(
                 self.__current_leader_address
             )
+            snapshot_current_role = copy.deepcopy(
+                self.__current_role
+            )
+            snapshot_current_term = copy.deepcopy(
+                self.__current_term
+            )
+
+            try:
+                self.__current_leader_address = address
+                self.__current_role = Role.FOLLOWER
+                self.__current_term = term
+                self.__storage.save_current_term(self.__current_term)
+                self.__storage.save_current_leader_address(
+                    self.__current_leader_address
+                )
+
+                print(
+                    "Current leader address: ",
+                    self.__current_leader_address
+                )
+                print("Current role: ", self.__current_role)
+                print("Current term: ", self.__current_term)
+
+            except:
+                self.__current_leader_address = snapshot_current_leader_address
+                self.__current_role = snapshot_current_role
+                self.__current_term = snapshot_current_term
+                self.__storage.save_current_term(self.__current_term)
+                self.__storage.save_current_leader_address(
+                    self.__current_leader_address
+                )
+                raise RuntimeError("Failed to become follower")
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
