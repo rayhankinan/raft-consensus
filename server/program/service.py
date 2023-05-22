@@ -1149,16 +1149,23 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 print("Vote rejected for:", candidate_address)
                 return False
 
-            with self.__rw_locks["voted_for"].w_locked():
+            with self.__rw_locks["current_term"].r_to_w_locked(), self.__rw_locks["voted_for"].w_locked():
+                snapshot_current_term = copy.deepcopy(
+                    self.__current_term
+                )
                 snapshot_voted_for = copy.deepcopy(
                     self.__voted_for
                 )
 
                 try:
+                    self.__current_term = term
+                    self.__storage.save_current_term(self.__current_term)
+
                     self.__voted_for = candidate_address
                     self.__storage.save_voted_for(self.__voted_for)
 
-                    print("Voted for: ", self.__voted_for)
+                    print("Current term:", self.__current_term)
+                    print("Voted for:", self.__voted_for)
 
                     # TODO: Ini jangan lupa ada lock dan rollback mechanism
                     self.__last_heartbeat_time = time.time()
@@ -1167,7 +1174,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     return True
 
                 except:
+                    self.__current_term = snapshot_current_term
                     self.__voted_for = snapshot_voted_for
+                    self.__storage.save_current_term(self.__current_term)
                     self.__storage.save_voted_for(self.__voted_for)
                     raise RuntimeError("Failed to vote")
 
