@@ -18,31 +18,39 @@ async def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *arg
 
 
 async def wait_for_all(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
-    return await asyncio.gather(*args)
+    try:
+        return await asyncio.gather(*args)
+    except:
+        # Jika ada error, maka return list kosong
+        return []
 
 
 async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
-    length = len(args)
-    threshold = length // 2 + 1
+    try:
+        length = len(args)
+        threshold = length // 2 + 1
 
-    completed = 0
-    results: list[Optional[bytes]] = []
+        completed = 0
+        results: list[Optional[bytes]] = []
 
-    # Membuat list of task
-    tasks = [asyncio.create_task(arg) for arg in args]
+        # Membuat list of task
+        tasks = [asyncio.create_task(arg) for arg in args]
 
-    while completed < threshold:
-        # Menunggu salah satu task selesai
-        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        while completed < threshold:
+            # Menunggu salah satu task selesai
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
-        for task in done:
-            results.append(task.result())
-            completed += 1
+            for task in done:
+                results.append(task.result())
+                completed += 1
 
-        # Hilangkan task yang sudah selesai
-        tasks = [task for task in tasks if not task.done()]
+            # Hilangkan task yang sudah selesai
+            tasks = [task for task in tasks if not task.done()]
 
-    return results
+        return results
+    except:
+        # Jika ada error, maka return list kosong
+        return []
 
 
 def serialize(value: Any) -> bytes:
