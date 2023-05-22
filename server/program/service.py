@@ -6,23 +6,25 @@ import threading
 import random
 from threading import Lock
 from queue import Queue
-from typing import Literal, Tuple
+from typing import Any, Coroutine, Literal, Tuple, Optional
 from data import Address, ServerInfo, MembershipLog, StateLog, Role
 from . import Storage, ServerConfig, RWLock, dynamically_call_procedure, wait_for_majority, wait_for_all, serialize, deserialize
 
 
-def create_connection(address: Address) -> rpyc.Connection:
+def create_connection(address: Address) -> Optional[rpyc.Connection]:
     hostname, port = address
-    conn = rpyc.connect(
-        hostname,
-        port,
-        service=ServerService,
-    )
+    conn: rpyc.Connection
 
-    if type(conn) != rpyc.Connection:
-        raise RuntimeError(f"Failed to connect to {hostname}:{port}")
+    try:
+        conn = rpyc.connect(
+            hostname,
+            port,
+            service=ServerService,
+        )
+        return conn
 
-    return conn
+    except:
+        return None
 
 
 class RaftNodeMeta(type):  # Thread Safe Singleton
@@ -146,6 +148,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 server_addresses = (
                     self.__config.get("SERVER_ADDRESS"),
                 )
+
+                if conn == None:
+                    raise RuntimeError("Leader is down")
+
                 asyncio.run(
                     dynamically_call_procedure(
                         conn,
@@ -255,6 +261,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     conn = create_connection(
                         self.__current_leader_address
                     )
+
+                    if conn == None:
+                        raise RuntimeError("Leader is down")
+
                     asyncio.run(
                         dynamically_call_procedure(
                             conn,
@@ -293,11 +303,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                             # Hanya broadcast jika ada Current Follower
                             if len(known_follower_addresses) > 0:
-                                asyncio.run(
-                                    wait_for_majority(
-                                        *(
+                                list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                ]
+
+                                for address, server_info in known_follower_addresses.items():
+                                    conn = create_connection(address)
+
+                                    if conn != None:
+                                        list_of_coroutine.append(
                                             dynamically_call_procedure(
-                                                create_connection(address),
+                                                conn,
                                                 "append_membership_logs",
                                                 serialize(self.__current_term),
                                                 serialize(
@@ -313,8 +328,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                     self.__known_address_commit_index
                                                 ),
                                             )
-                                            for address, server_info in known_follower_addresses.items()
                                         )
+
+                                asyncio.run(
+                                    wait_for_majority(
+                                        *list_of_coroutine
                                     )
                                 )
 
@@ -383,32 +401,44 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                                             # Hanya broadcast jika ada follower
                                             if len(new_known_follower_addresses) > 0:
-                                                asyncio.run(
-                                                    wait_for_majority(
-                                                        *(
+                                                list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                                ]
+
+                                                for address, server_info in new_known_follower_addresses.items():
+                                                    conn = create_connection(
+                                                        address
+                                                    )
+
+                                                    if conn != None:
+                                                        list_of_coroutine.append(
                                                             dynamically_call_procedure(
-                                                                create_connection(
-                                                                    address
-                                                                ),
+                                                                conn,
                                                                 "commit_membership_logs",
                                                             )
-                                                            for address, _ in new_known_follower_addresses.items()
                                                         )
+
+                                                asyncio.run(
+                                                    wait_for_majority(
+                                                        *list_of_coroutine
                                                     )
                                                 )
 
                                             # Append in New Follower
-                                            asyncio.run(
-                                                wait_for_all(
-                                                    *(
+                                            list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                            ]
+
+                                            for follower_address in follower_addresses:
+                                                conn = create_connection(
+                                                    follower_address
+                                                )
+
+                                                if conn != None:
+                                                    list_of_coroutine.append(
                                                         dynamically_call_procedure(
-                                                            create_connection(
-                                                                follower_address
-                                                            ),
+                                                            conn,
                                                             "append_membership_logs",
                                                             serialize(
-                                                                self.__current_term
-                                                            ),
+                                                                self.__current_term),
                                                             serialize(-1),
                                                             serialize(
                                                                 self.__current_term
@@ -420,23 +450,33 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                                 self.__known_address_commit_index
                                                             ),
                                                         )
-                                                        for follower_address in follower_addresses
                                                     )
+
+                                            asyncio.run(
+                                                wait_for_all(
+                                                    *list_of_coroutine
                                                 )
                                             )
 
                                             # Commit in New Follower
-                                            asyncio.run(
-                                                wait_for_all(
-                                                    *(
+                                            list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                            ]
+
+                                            for follower_address in follower_addresses:
+                                                conn = create_connection(
+                                                    follower_address)
+
+                                                if conn != None:
+                                                    list_of_coroutine.append(
                                                         dynamically_call_procedure(
-                                                            create_connection(
-                                                                follower_address
-                                                            ),
+                                                            conn,
                                                             "commit_membership_logs",
                                                         )
-                                                        for follower_address in follower_addresses
                                                     )
+
+                                            asyncio.run(
+                                                wait_for_all(
+                                                    *list_of_coroutine
                                                 )
                                             )
 
@@ -604,22 +644,30 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     conn = create_connection(
                         self.__current_leader_address
                     )
-                    if (command == "ENQUEUE"):
-                        asyncio.run(
-                            dynamically_call_procedure(
-                                conn,
-                                "enqueue",
-                                serialize(message),
+
+                    if conn == None:
+                        raise RuntimeError("Leader is down")
+
+                    match command:
+                        case "ENQUEUE":
+                            asyncio.run(
+                                dynamically_call_procedure(
+                                    conn,
+                                    "enqueue",
+                                    serialize(message),
+                                )
                             )
-                        )
-                    else:
-                        asyncio.run(
-                            dynamically_call_procedure(
-                                conn,
-                                "dequeue",
+                        case "DEQUEUE":
+                            asyncio.run(
+                                dynamically_call_procedure(
+                                    conn,
+                                    "dequeue",
+                                )
                             )
-                        )
+                        case _:
+                            raise RuntimeError("Invalid command")
                     return
+
             with self.__rw_locks["current_term"].r_locked():
                 new_state_log = StateLog(
                     self.__current_term,
@@ -643,11 +691,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             }
 
                             if len(known_follower_addresses) > 0:
-                                asyncio.run(
-                                    wait_for_majority(
-                                        *(
+                                list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                ]
+
+                                for address, server_info in known_follower_addresses.items():
+                                    conn = create_connection(address)
+
+                                    if conn != None:
+                                        list_of_coroutine.append(
                                             dynamically_call_procedure(
-                                                create_connection(address),
+                                                conn,
                                                 "append_state_logs",
                                                 serialize(self.__current_term),
                                                 serialize(
@@ -656,20 +709,27 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                 serialize(
                                                     self.__state_log[
                                                         server_info.state_next_index - 1
-                                                    ].term if server_info.state_next_index > 0 else 0
+                                                    ].term
+                                                    if server_info.state_next_index > 0
+                                                    else 0
                                                 ),
                                                 serialize(
-                                                    self.__state_log[server_info.state_next_index:] if server_info.state_next_index < len(
-                                                        self.__state_log) else []
+                                                    self.__state_log[server_info.state_next_index:]
+                                                    if server_info.state_next_index < len(self.__state_log)
+                                                    else []
                                                 ),
                                                 serialize(
                                                     self.__state_commit_index
                                                 ),
                                             )
-                                            for address, server_info in known_follower_addresses.items()
                                         )
+
+                                asyncio.run(
+                                    wait_for_majority(
+                                        *list_of_coroutine
                                     )
                                 )
+
                             # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
                             self.__storage.save_state_log(
                                 self.__state_log
@@ -722,17 +782,25 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             # Commit and Apply in Current Follower
                                             # Broadcast commit_state_logs to all nodes and wait for majority
                                             if len(known_follower_addresses) > 0:
-                                                asyncio.run(
-                                                    wait_for_majority(
-                                                        *(
+                                                list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                                                ]
+
+                                                for address, server_info in known_follower_addresses.items():
+                                                    conn = create_connection(
+                                                        address
+                                                    )
+
+                                                    if conn != None:
+                                                        list_of_coroutine.append(
                                                             dynamically_call_procedure(
-                                                                create_connection(
-                                                                    address
-                                                                ),
+                                                                conn,
                                                                 "commit_state_logs",
                                                             )
-                                                            for address, _ in known_follower_addresses.items()
                                                         )
+
+                                                asyncio.run(
+                                                    wait_for_majority(
+                                                        *list_of_coroutine
                                                     )
                                                 )
                                         except:
@@ -759,12 +827,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
             with self.__rw_locks["state_log"].r_locked():
                 if prev_log_index >= 0 and self.__state_log[prev_log_index].term != prev_log_term:
+                    conn = create_connection(self.__current_leader_address)
+
+                    if conn == None:
+                        raise RuntimeError("Leader is down")
+
                     asyncio.run(
                         dynamically_call_procedure(
-                            create_connection(
-                                self.__current_leader_address
-                            ),
-                            "decrease_next_index"
+                            conn,
+                            "decrease_next_index",
+                            serialize(self.__config.get("SERVER_ADDRESS")),
                         )
                     )
                     return
@@ -788,11 +860,14 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                         final_length = len(self.__state_log)
 
+                        conn = create_connection(self.__current_leader_address)
+
+                        if conn == None:
+                            raise RuntimeError("Leader is down")
+
                         asyncio.run(
                             dynamically_call_procedure(
-                                create_connection(
-                                    self.__current_leader_address
-                                ),
+                                conn,
                                 "update_next_match",
                                 serialize(self.__config.get("SERVER_ADDRESS")),
                                 serialize(final_length),
@@ -873,7 +948,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                     msg
                                                 )
                                         case "DEQUEUE":
-                                            self.__state_machine.get()
+                                            result = self.__state_machine.get()
+                                            print(
+                                                "Dequeued:",
+                                                result
+                                            )
                                         case _:
                                             raise RuntimeError(
                                                 "Invalid log command"
@@ -914,27 +993,31 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
                 # Sendback append entry to address
                 with self.__rw_locks["state_log"].r_locked():
-                    asyncio.run(
-                        dynamically_call_procedure(
-                            create_connection(address),
-                            "append_state_logs",
-                            serialize(self.__current_term),
-                            serialize(
-                                self.__current_known_address[address].state_next_index - 1
-                            ),
-                            serialize(
-                                self.__state_log[self.__current_known_address[address].state_next_index -
-                                                 1].term if self.__current_known_address[address].state_next_index > 0 else 0
-                            ),
-                            serialize(
-                                self.__state_log[self.__current_known_address[address].state_next_index:] if self.__current_known_address[address].state_next_index < len(
-                                    self.__state_log) else []
-                            ),
-                            serialize(
-                                self.__state_commit_index
-                            ),
+                    conn = create_connection(address)
+
+                    if conn != None:
+                        asyncio.run(
+                            dynamically_call_procedure(
+                                conn,
+                                "append_state_logs",
+                                serialize(self.__current_term),
+                                serialize(
+                                    self.__current_known_address[address].state_next_index - 1
+                                ),
+                                serialize(
+                                    self.__state_log[self.__current_known_address[address].state_next_index -
+                                                     1].term if self.__current_known_address[address].state_next_index > 0 else 0
+                                ),
+                                serialize(
+                                    self.__state_log[self.__current_known_address[address].state_next_index:]
+                                    if self.__current_known_address[address].state_next_index < len(self.__state_log)
+                                    else []
+                                ),
+                                serialize(
+                                    self.__state_commit_index
+                                ),
+                            )
                         )
-                    )
 
             except:
                 self.__current_known_address = snapshot_current_known_address
@@ -1004,11 +1087,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         if address != self.__config.get("SERVER_ADDRESS")
                     }
 
-                    raw_vote_result = asyncio.run(
-                        wait_for_majority(
-                            *(
+                    list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                    ]
+
+                    for address, _ in known_follower_addresses.items():
+                        conn = create_connection(address)
+
+                        if conn != None:
+                            list_of_coroutine.append(
                                 dynamically_call_procedure(
-                                    create_connection(address),
+                                    conn,
                                     "request_vote",
                                     serialize(self.__current_term),
                                     serialize(
@@ -1018,8 +1106,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                     ),
                                     serialize(self.__state_commit_index)
                                 )
-                                for address, _ in known_follower_addresses.items()
                             )
+
+                    raw_vote_result = asyncio.run(
+                        wait_for_majority(
+                            *list_of_coroutine
                         )
                     )
 
@@ -1124,17 +1215,25 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         if address != self.__config.get("SERVER_ADDRESS")
                     }
 
-                    asyncio.run(
-                        wait_for_majority(
-                            *(
+                    list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+                    ]
+
+                    for address, _ in known_follower_addresses.items():
+                        conn = create_connection(address)
+
+                        if conn != None:
+                            list_of_coroutine.append(
                                 dynamically_call_procedure(
-                                    create_connection(address),
+                                    conn,
                                     "become_follower",
                                     serialize(self.__current_term),
                                     serialize(self.__current_leader_address),
                                 )
-                                for address, _ in known_follower_addresses.items()
                             )
+
+                    asyncio.run(
+                        wait_for_majority(
+                            *list_of_coroutine
                         )
                     )
 
@@ -1196,17 +1295,25 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 if address != self.__config.get("SERVER_ADDRESS")
             }
 
-            asyncio.run(
-                wait_for_majority(
-                    *(
+            list_of_coroutine: list[Coroutine[Any, Any, Optional[bytes]]] = [
+            ]
+
+            for address, _ in known_follower_addresses.items():
+                conn = create_connection(address)
+
+                if conn != None:
+                    list_of_coroutine.append(
                         dynamically_call_procedure(
-                            create_connection(address),
+                            conn,
                             "handle_heartbeat",
                             serialize(self.__current_term),
                             serialize(self.__config.get("SERVER_ADDRESS")),
                         )
-                        for address, _ in known_follower_addresses.items()
                     )
+
+            asyncio.run(
+                wait_for_majority(
+                    *list_of_coroutine
                 )
             )
 
