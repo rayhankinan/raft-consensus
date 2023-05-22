@@ -1186,7 +1186,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         # if address received is not current leader address, update current leader address
         with self.__rw_locks["current_leader_address"].w_locked():
-            if (adress != self.__current_leader_address):
+            if (adress != self.__current_leader_address and term >= self.__current_term):
                 self.__current_leader_address = adress
 
         # with self.__rw_locks["current_role"].w_locked():
