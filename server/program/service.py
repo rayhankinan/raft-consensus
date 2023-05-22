@@ -82,6 +82,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __heartbeat_timeout: float = random.uniform(3.0, 4.0)
     __last_heartbeat_time = time.time()
 
+    # Threads
+    heartbeat_thread: threading.Thread
+    timeout_thread: threading.Thread
+
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
         with self.__rw_locks["current_known_address"].r_locked():
