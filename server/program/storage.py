@@ -67,7 +67,7 @@ class Storage(metaclass=StorageMeta):  # Ini Singleton
         except FileNotFoundError:
             return self.__config.get("SERVER_ADDRESS")
 
-    def save_voted_for(self, voted_for: str) -> None:
+    def save_voted_for(self, voted_for: Address) -> None:
         os.makedirs(self.__base_dir, exist_ok=True)
 
         with open(f"{self.__base_dir}/voted_for.pickle", "wb") as f:

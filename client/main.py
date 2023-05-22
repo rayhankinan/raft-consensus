@@ -44,9 +44,6 @@ if __name__ == "__main__":
     asyncio.run(
         wait_for_all(
             *(
-                dynamically_call_procedure(conn_0, "enqueue", codecs.encode(pickle.dumps(("hello",)), "base64")),
-                dynamically_call_procedure(conn_1, "enqueue", codecs.encode(pickle.dumps(("world",)), "base64")),
-                dynamically_call_procedure(conn_2, "dequeue"),
                 dynamically_call_procedure(conn_1, "print_node"),
                 dynamically_call_procedure(conn_2, "print_node"),
                 dynamically_call_procedure(conn_3, "print_node"),

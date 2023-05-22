@@ -46,6 +46,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         "state_log": RWLock(),
         "current_term": RWLock(),
         "voted_for": RWLock(),
+        "current_leader_address": RWLock(),
         "state_machine": RWLock(),
         "state_commit_index": RWLock(),
         "state_last_applied": RWLock(),
@@ -53,7 +54,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         "known_address_commit_index": RWLock(),
         "known_address_last_applied": RWLock(),
         "current_role": RWLock(),
-        "current_leader_address": RWLock(),
     }
 
     # Persistent state on all servers
@@ -76,7 +76,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Other state
     __current_role: Role = Role.FOLLOWER
-    __last_term = 0
 
     # Hearbeat
     __heartbeat_interval: float = 1.0
@@ -153,11 +152,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         serialize(server_addresses),
                     )
                 )
-
-                # self.__last_heartbeat_time = time.time()
-                # self.__heartbeat_timeout = random.uniform(2.0, 3.0)
-                # self.start_timer()
-                # return
 
             else:
                 with self.__rw_locks["current_role"].w_locked():
@@ -248,7 +242,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
-            self.__last_term = 0
             self.timeout_thread = threading.Thread(target=self.check_timeout)
             self.timeout_thread.daemon = True
             self.timeout_thread.start()
@@ -1101,32 +1094,38 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 )
             )
 
-        # Heartbeat
+        # Heartbeat (Not bound by lock)
         self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
         self.hearbeat_thread.daemon = True
         self.hearbeat_thread.start()
 
-    # TODO: Ini jangan lupa ada lock dan rollback mechanism
-    def request_vote(self, term, candidate_id, state_commit_index) -> bool:
-        if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
-            print("Vote rejected for:", candidate_id)
-            return False
+    def request_vote(self, term: int, candidate_address: Address, state_commit_index: int) -> bool:
+        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
+            if term < self.__current_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
+                print("Vote rejected for:", candidate_address)
+                return False
 
-        self.__last_term = term
-        self.__voted_for = candidate_id
+            with self.__rw_locks["voted_for"].w_locked():
+                snapshot_voted_for = copy.deepcopy(
+                    self.__voted_for
+                )
 
-        # Save voted for
-        self.__storage.save_voted_for(self.__voted_for)
+                try:
+                    self.__voted_for = candidate_address
+                    self.__storage.save_voted_for(self.__voted_for)
 
-        print("Voted for: ", self.__voted_for)
+                    print("Voted for: ", self.__voted_for)
 
-        self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+                    self.__last_heartbeat_time = time.time()
+                    self.__heartbeat_timeout = random.uniform(2.0, 3.0)
 
-        return True
+                    return True
+                except:
+                    self.__voted_for = snapshot_voted_for
+                    self.__storage.save_voted_for(self.__voted_for)
+                    raise RuntimeError("Failed to vote")
 
     def send_heartbeat(self):
-        # loop through all known address
         with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked():
             known_follower_addresses = {
                 address: server_info
@@ -1159,27 +1158,56 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             with self.__rw_locks["current_role"].r_locked():
                 current_role = self.__current_role
 
-    # TODO: Ini jangan lupa ada rollback mechanism
     def handle_heartbeat(self, term: int, address: Address):
         # If received heartbeat and is leader, check is received term greater than current term
         # If greater, become follower and update current term
 
-        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
+        with self.__rw_locks["current_term"].r_locked():
             if term > self.__current_term:
                 print("Stepping down")
 
-                self.__current_term = term
-                self.__storage.save_current_term(self.__current_term)
-                self.__current_role = Role.FOLLOWER
+                with self.__rw_locks["current_term"].r_to_w_locked(), self.__rw_locks["current_role"].w_locked():
+                    snapshot_current_term = copy.deepcopy(
+                        self.__current_term
+                    )
+                    snapshot_current_role = copy.deepcopy(
+                        self.__current_role
+                    )
 
-        # If address received is not current leader address, update current leader address
-        with self.__rw_locks["current_leader_address"].w_locked():
-            if address != self.__current_leader_address and term >= self.__current_term:
-                self.__current_leader_address = address
-                self.__storage.save_current_leader_address(
-                    self.__current_leader_address
-                )
+                    try:
+                        self.__current_term = term
+                        self.__storage.save_current_term(self.__current_term)
+                        self.__current_role = Role.FOLLOWER
 
+                        with self.__rw_locks["current_leader_address"].r_locked():
+                            if address != self.__current_leader_address and term >= self.__current_term:
+
+                                with self.__rw_locks["current_leader_address"].r_to_w_locked():
+                                    snapshot_current_leader_address = copy.deepcopy(
+                                        self.__current_leader_address
+                                    )
+
+                                    try:
+                                        self.__current_leader_address = address
+                                        self.__storage.save_current_leader_address(
+                                            self.__current_leader_address
+                                        )
+                                    except:
+                                        self.__current_leader_address = snapshot_current_leader_address
+                                        self.__storage.save_current_leader_address(
+                                            self.__current_leader_address
+                                        )
+                                        raise RuntimeError(
+                                            "Failed to update current leader address"
+                                        )
+
+                    except:
+                        self.__current_term = snapshot_current_term
+                        self.__current_role = snapshot_current_role
+                        self.__storage.save_current_term(self.__current_term)
+                        raise RuntimeError("Failed to update current term")
+
+        # Heartbeat (Not bound by lock)
         self.__last_heartbeat_time = time.time()
 
 
