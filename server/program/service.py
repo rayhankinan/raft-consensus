@@ -61,6 +61,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     __state_log: list[StateLog] = __storage.get_state_log()
     __current_term: int = __storage.get_current_term()
     __voted_for: Address = __storage.get_voted_for()
+    __current_leader_address: Address = __storage.get_current_leader_address()
 
     # Volatile queue state on all servers
     __state_machine: Queue[str] = Queue()
@@ -74,7 +75,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Other state
     __current_role: Role = Role.FOLLOWER
-    __current_leader_address: Address = __config.get("LEADER_ADDRESS")
     __last_term = 0
 
     # Hearbeat
@@ -139,7 +139,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Public Method (Write)
     def start(self) -> None:
-
         with self.__rw_locks["current_leader_address"].r_locked():
             if self.__current_leader_address != self.__config.get("SERVER_ADDRESS"):
                 conn = create_connection(self.__current_leader_address)
@@ -253,11 +252,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             self.timeout_thread.daemon = True
             self.timeout_thread.start()
 
-    # TODO: Implementasikan penghapusan node dari cluster
-    # Public Method (Write)
-    def stop(self) -> None:
-        pass
-
     # Public Method (Write)
     def add_server(self, follower_addresses: Tuple[Address, ...]) -> None:
         with self.__rw_locks["current_role"].r_locked():
@@ -328,8 +322,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         )
                                     )
                                 )
-
-                                # TODO: Update nilai next_index (bisa pake lambda function)
 
                             # Commit and Apply in Leader
                             # Write Ahead Logging: Menyimpan log terlebih dahulu sebelum di-apply change
@@ -409,8 +401,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                         )
                                                     )
                                                 )
-
-                                                # TODO: Update nilai match_index (bisa pake lambda function)
 
                                             # Append in New Follower
                                             asyncio.run(
@@ -669,8 +659,9 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                                     server_info.state_next_index - 1
                                                 ),
                                                 serialize(
-                                                    self.__state_log[server_info.state_next_index -
-                                                                     1].term if server_info.state_next_index > 0 else 0
+                                                    self.__state_log[
+                                                        server_info.state_next_index - 1
+                                                    ].term if server_info.state_next_index > 0 else 0
                                                 ),
                                                 serialize(
                                                     self.__state_log[server_info.state_next_index:] if server_info.state_next_index < len(
@@ -1349,18 +1340,26 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     @rpyc.exposed
     def print_node(self) -> None:
         print("current known address", self.__node.get_current_known_address())
-        print("Known Address Commit Index:",
-              self.__node.get_known_address_commit_index())
-        print("Known Address Last Applied:",
-              self.__node.get_known_address_last_applied())
+        print(
+            "Known Address Commit Index:",
+            self.__node.get_known_address_commit_index()
+        )
+        print(
+            "Known Address Last Applied:",
+            self.__node.get_known_address_last_applied()
+        )
         print("Leader Address:", self.__node.get_leader_address())
         print("Current Term:", self.__node.get_current_term())
         print("Current Role:", self.__node.get_current_role())
         print("Current State Machine:", self.__node.get_state_machine())
-        print("Current State Commit Index:",
-              self.__node.get_state_commit_index())
-        print("Current State Last Applied:",
-              self.__node.get_state_last_applied())
+        print(
+            "Current State Commit Index:",
+            self.__node.get_state_commit_index()
+        )
+        print(
+            "Current State Last Applied:",
+            self.__node.get_state_last_applied()
+        )
         print("Current State Log:", self.__node.get_state_log())
 
     @rpyc.exposed
