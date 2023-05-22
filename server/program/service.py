@@ -901,17 +901,21 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     # Decrease next and match index
     def decrease_next_index(self, address: Address) -> None:
         print("decrease next index")
-        with self.__rw_locks["current_known_address"].r_to_w_locked():
+
+        with self.__rw_locks["current_known_address"].w_locked():
             snapshot_current_known_address = copy.deepcopy(
                 self.__current_known_address
             )
+
             try:
                 for known_address, serverinfo in self.__current_known_address.items():
                     if known_address == address:
                         # update next index
                         serverinfo._replace(
-                            state_next_index=serverinfo.state_next_index - 1)
-                # sendback append entry to address
+                            state_next_index=serverinfo.state_next_index - 1
+                        )
+
+                        # sendback append entry to address
                         with self.__rw_locks["state_log"].r_locked():
                             asyncio.run(
                                 dynamically_call_procedure(
@@ -939,10 +943,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Failed to decrease next index")
 
     def update_next_match(self, address: Address, next_index: int, match_index: int) -> None:
-        with self.__rw_locks["current_known_address"].r_to_w_locked():
+        with self.__rw_locks["current_known_address"].w_locked():
             snapshot_current_known_address = copy.deepcopy(
                 self.__current_known_address
             )
+
             try:
                 for known_address, serverinfo in self.__current_known_address.items():
                     if known_address.get_hostname() == address.get_hostname() and known_address.get_port() == address.get_port():
@@ -987,6 +992,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     def handle_timeout(self):
         print("Node", self.__config.get("SERVER_ADDRESS"), "timeout")
+
         self.start_leader_election()
 
     def start_leader_election(self):
@@ -1039,6 +1045,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         with self.__rw_locks["current_role"].w_locked():
             self.__current_role = Role.FOLLOWER
             print("Failed to win election")
+
             # print("Current role: ", self.__current_role)
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
@@ -1051,11 +1058,14 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         #     print("Current role: ", self.__current_role)
         #     # self.start_timer()
         print("Becoming follower")
+
         with self.__rw_locks["current_leader_address"].w_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
             self.__current_leader_address = address
             print("Current leader address: ", self.__current_leader_address)
+
             self.__current_role = Role.FOLLOWER
             print("Current role: ", self.__current_role)
+
             self.__current_term = term
             print("Current term: ", self.__current_term)
 
@@ -1068,7 +1078,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     def handle_election_win(self):
         # time.sleep(1)
-        with self.__rw_locks["current_role"].w_locked():
+        with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_leader_address"].w_locked():
             # if(self.__current_role != Role.CANDIDATE) :
             #     return
             print("Election won by node", self.__config.get("SERVER_ADDRESS"))
@@ -1078,7 +1088,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             print("Current term: ", self.__current_term)
 
             self.__storage.save_current_leader_address(
-                self.__current_leader_address)
+                self.__current_leader_address
+            )
 
             # stop self timer and start heartbeat
         # self.start_timer()
@@ -1112,12 +1123,11 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         self.hearbeat_thread.daemon = True
         self.hearbeat_thread.start()
 
+    # TODO: Ini jangan lupa dilockk
     def request_vote(self, term, candidate_id, state_commit_index) -> bool:
         if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
             print("Vote rejected for:", candidate_id)
             return False
-
-        # TODO: Ini jangan lupa dilockk
 
         self.__last_term = term
         self.__voted_for = candidate_id
@@ -1132,6 +1142,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         return True
 
+    # TODO: Ini jangan lupa ada rollback mechanism
     def handle_heartbeat(self, term, adress):
         # If received heartbeat and is leader, check is received term greater than current term
         # If greater, become follower and update current term
@@ -1156,6 +1167,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         self.__last_heartbeat_time = time.time()
 
+    # TODO: Ini jangan lupa dilockk
     def hearbeat_loop(self):
         # count = 0
         while self.__current_role == Role.LEADER:
@@ -1171,30 +1183,44 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     def send_heartbeat(self):
         # loop through all known address
-        with self.__rw_locks["current_known_address"].r_locked():
-            for address in self.__current_known_address:
-                # skip if address is current server address
-                if (address == self.__config.get("SERVER_ADDRESS")):
-                    continue
+        with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked():
+            known_follower_addresses = {
+                address: server_info
+                for address, server_info in self.__current_known_address.items()
+                if address != self.__config.get("SERVER_ADDRESS")
+            }
 
-                # send heartbeat to address
-                conn = create_connection(address)
-                asyncio.run(
-                    dynamically_call_procedure(
-                        conn,
-                        "handle_heartbeat",
-                        serialize(self.__current_term),
-                        serialize(self.__config.get("SERVER_ADDRESS")),
+            asyncio.run(
+                wait_for_majority(
+                    *(
+                        dynamically_call_procedure(
+                            create_connection(address),
+                            "handle_heartbeat",
+                            serialize(self.__current_term),
+                            serialize(self.__config.get("SERVER_ADDRESS")),
+                        )
+                        for address, _ in known_follower_addresses.items()
                     )
                 )
+            )
 
     def start_heartbeat(self):
-        count = 0
-        while self.__current_role == Role.LEADER:
-            self.send_heartbeat()
-            count += 1
+        current_role = self.__current_role
 
+        while current_role == Role.LEADER:
+            self.send_heartbeat()
             time.sleep(self.__heartbeat_interval)
+
+            with self.__rw_locks["current_role"].w_locked():
+                snapshot_current_role = copy.deepcopy(
+                    self.__current_role
+                )
+
+                try:
+                    current_role = self.__current_role
+                except:
+                    self.__current_role = snapshot_current_role
+                    raise RuntimeError("Failed to update current role")
 
 
 @rpyc.service
@@ -1212,8 +1238,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Procedure
     @rpyc.exposed
     def add_server(self, raw_follower_address: bytes) -> None:
-        # NOTE: Dalam satu flow service hanya boleh terpanggil satu method pada node (menjaga atomicity)
-
         follower_addresses: Tuple[Address, ...] = deserialize(
             raw_follower_address
         )
@@ -1230,8 +1254,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             raw_new_membership_logs
         )
         leader_commit_index: int = deserialize(raw_leader_commit_index)
-
-        # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         self.__node.append_membership_logs(
             term,
             prev_log_index,
@@ -1243,7 +1265,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Procedure
     @rpyc.exposed
     def commit_membership_logs(self) -> None:
-        # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         self.__node.commit_membership_logs()
 
     # Procedure
@@ -1297,13 +1318,11 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     # Procedure: Test untuk client
     @rpyc.exposed
     def print_membership_log(self) -> None:
-        # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         print("Membership Logs:", self.__node.get_membership_log())
 
     # Procedure: Test untuk client
     @rpyc.exposed
     def print_known_address(self) -> None:
-        # NOTE: Dalam satu service hanya boleh terpanggil satu method pada node (menjaga atomicity)
         print("Known Address:", self.__node.get_current_known_address())
 
         # Procedure: Test untuk client
