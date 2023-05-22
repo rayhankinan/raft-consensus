@@ -235,10 +235,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         raise RuntimeError("Failed to initialize")
 
                 # heartbeat
-                self.hearbeat_thread = threading.Thread(
+                self.heartbeat_thread = threading.Thread(
                     target=self.start_heartbeat)
-                self.hearbeat_thread.daemon = True
-                self.hearbeat_thread.start()
+                self.heartbeat_thread.daemon = True
+                self.heartbeat_thread.start()
 
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
@@ -687,7 +687,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         snapshot_state_last_applied = copy.deepcopy(
                                             self.__state_last_applied
                                         )
-                                        snapshot_state_machine = Queue()
+                                        snapshot_state_machine: Queue[str] = Queue(
+                                        )
                                         snapshot_state_machine.queue = copy.deepcopy(
                                             self.__state_machine.queue
                                         )
@@ -820,7 +821,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         raise RuntimeError("Failed to append membership logs")
 
     # Public Method (Write)
-
     def commit_state_logs(self) -> None:
         # Commit in Follower
         with self.__rw_locks["state_log"].w_locked():
@@ -849,8 +849,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                             snapshot_state_last_applied = copy.deepcopy(
                                 self.__state_last_applied
                             )
-                            # copy state machine
-                            snapshot_state_machine = Queue()
+                            # Copy state machine
+                            snapshot_state_machine: Queue[str] = Queue()
                             snapshot_state_machine.queue = copy.deepcopy(
                                 self.__state_machine.queue
                             )
@@ -870,7 +870,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                             self.__state_machine.get()
                                         case _:
                                             raise RuntimeError(
-                                                "Invalid log command")
+                                                "Invalid log command"
+                                            )
 
                                     self.__state_last_applied += 1
                             except:
@@ -893,7 +894,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Decrease next and match index
     def decrease_next_index(self, address: Address) -> None:
-        print("decrease next index")
+        print(f"Decrease next index: {address}")
 
         with self.__rw_locks["current_known_address"].w_locked():
             snapshot_current_known_address = copy.deepcopy(
@@ -952,28 +953,22 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__current_known_address = snapshot_current_known_address
                 raise RuntimeError("Failed to update next index")
 
-    # TODO: Ini jangan lupa ada lock dan rollback mechanism
-    def check_timeout(self):
-        # Wait 1 second to initialize
+    def check_timeout(self) -> None:
         time.sleep(1)
 
         while True:
-            if self.__current_role != Role.LEADER:
-                if (time.time() - self.__last_heartbeat_time) > self.__heartbeat_timeout:
+            with self.__rw_locks["current_role"].r_locked():
+                if self.__current_role != Role.LEADER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:
                     self.handle_timeout()
 
             time.sleep(self.__heartbeat_timeout)
 
-    def start_timer(self):
-        timer_thread = threading.Thread(target=self.check_timeout)
-        timer_thread.daemon = True
-        timer_thread.start()
-
     def handle_timeout(self):
-        print("Node", self.__config.get("SERVER_ADDRESS"), "timeout")
+        print("Heartbeat Timeout")
 
         self.start_leader_election()
 
+    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def start_leader_election(self):
         print(
             "Starting leader election for node",
@@ -1022,21 +1017,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 return
 
         with self.__rw_locks["current_role"].w_locked():
-            self.__current_role = Role.FOLLOWER
             print("Failed to win election")
+            self.__current_role = Role.FOLLOWER
 
-            # print("Current role: ", self.__current_role)
-            self.__last_heartbeat_time = time.time()
-            self.__heartbeat_timeout = random.uniform(2.0, 3.0)
+        # TODO: Ini jangan lupa ada lock dan rollback mechanism
+        self.__last_heartbeat_time = time.time()
+        self.__heartbeat_timeout = random.uniform(2.0, 3.0)
 
     # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def become_follower(self, address, term):
-        # print("Becoming follower")
-        # lock
-        # with self.__rw_locks["current_role"].w_locked() :
-        #     self.__current_role = Role.FOLLOWER
-        #     print("Current role: ", self.__current_role)
-        #     # self.start_timer()
         print("Becoming follower")
 
         with self.__rw_locks["current_leader_address"].w_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_term"].w_locked():
@@ -1054,6 +1043,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__current_leader_address
             )
 
+        # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(1.5, 3.0)
 
@@ -1094,10 +1084,10 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 )
             )
 
-        # Heartbeat (Not bound by lock)
-        self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
-        self.hearbeat_thread.daemon = True
-        self.hearbeat_thread.start()
+        # TODO: Ini jangan lupa ada lock dan rollback mechanism
+        self.heartbeat_thread = threading.Thread(target=self.start_heartbeat)
+        self.heartbeat_thread.daemon = True
+        self.heartbeat_thread.start()
 
     def request_vote(self, term: int, candidate_address: Address, state_commit_index: int) -> bool:
         with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
@@ -1207,7 +1197,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         self.__storage.save_current_term(self.__current_term)
                         raise RuntimeError("Failed to update current term")
 
-        # Heartbeat (Not bound by lock)
+        # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
 
 

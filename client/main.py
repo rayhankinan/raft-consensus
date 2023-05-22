@@ -1,6 +1,5 @@
 import codecs
 import pickle
-from typing import Tuple
 import rpyc
 import asyncio
 from program import ClientService, dynamically_call_procedure, wait_for_all
@@ -44,12 +43,11 @@ if __name__ == "__main__":
     asyncio.run(
         wait_for_all(
             *(
-                dynamically_call_procedure(conn_1, "print_node"),
-                dynamically_call_procedure(conn_2, "print_node"),
-                dynamically_call_procedure(conn_3, "print_node"),
-                dynamically_call_procedure(conn_4, "print_node"),
-                dynamically_call_procedure(conn_5, "print_node"),
-                dynamically_call_procedure(conn_0, "print_node"),
+                dynamically_call_procedure(conn_0, "enqueue", codecs.encode(
+                    pickle.dumps(("hello",)), "base64")),
+                dynamically_call_procedure(conn_1, "enqueue", codecs.encode(
+                    pickle.dumps(("world",)), "base64")),
+                dynamically_call_procedure(conn_2, "dequeue"),
             )
         )
     )
