@@ -908,36 +908,34 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             )
 
             try:
-                for known_address, serverinfo in self.__current_known_address.items():
-                    if known_address == address:
-                        # update next index
-                        serverinfo._replace(
-                            state_next_index=serverinfo.state_next_index - 1
-                        )
+                self.__current_known_address[address]._replace(
+                    state_next_index=self.__current_known_address[address].state_next_index - 1
+                )
 
-                        # sendback append entry to address
-                        with self.__rw_locks["state_log"].r_locked():
-                            asyncio.run(
-                                dynamically_call_procedure(
-                                    create_connection(address),
-                                    "append_state_logs",
-                                    serialize(self.__current_term),
-                                    serialize(
-                                        serverinfo.state_next_index - 1
-                                    ),
-                                    serialize(
-                                        self.__state_log[serverinfo.state_next_index -
-                                                         1].term if serverinfo.state_next_index > 0 else 0
-                                    ),
-                                    serialize(
-                                        self.__state_log[serverinfo.state_next_index:] if serverinfo.state_next_index < len(
-                                            self.__state_log) else []
-                                    ),
-                                    serialize(
-                                        self.__state_commit_index
-                                    ),
-                                )
-                            )
+                # Sendback append entry to address
+                with self.__rw_locks["state_log"].r_locked():
+                    asyncio.run(
+                        dynamically_call_procedure(
+                            create_connection(address),
+                            "append_state_logs",
+                            serialize(self.__current_term),
+                            serialize(
+                                self.__current_known_address[address].state_next_index - 1
+                            ),
+                            serialize(
+                                self.__state_log[self.__current_known_address[address].state_next_index -
+                                                 1].term if self.__current_known_address[address].state_next_index > 0 else 0
+                            ),
+                            serialize(
+                                self.__state_log[self.__current_known_address[address].state_next_index:] if self.__current_known_address[address].state_next_index < len(
+                                    self.__state_log) else []
+                            ),
+                            serialize(
+                                self.__state_commit_index
+                            ),
+                        )
+                    )
+
             except:
                 self.__current_known_address = snapshot_current_known_address
                 raise RuntimeError("Failed to decrease next index")
@@ -1171,27 +1169,25 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     raise RuntimeError("Failed to update current role")
 
     # TODO: Ini jangan lupa ada rollback mechanism
-    def handle_heartbeat(self, term, adress):
+    def handle_heartbeat(self, term: int, address: Address):
         # If received heartbeat and is leader, check is received term greater than current term
         # If greater, become follower and update current term
 
         with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
-            if (term > self.__current_term):
+            if term > self.__current_term:
                 print("Stepping down")
 
                 self.__current_term = term
                 self.__storage.save_current_term(self.__current_term)
                 self.__current_role = Role.FOLLOWER
 
-        # if address received is not current leader address, update current leader address
+        # If address received is not current leader address, update current leader address
         with self.__rw_locks["current_leader_address"].w_locked():
-            if (adress != self.__current_leader_address and term >= self.__current_term):
-                self.__current_leader_address = adress
+            if address != self.__current_leader_address and term >= self.__current_term:
+                self.__current_leader_address = address
                 self.__storage.save_current_leader_address(
-                    self.__current_leader_address)
-
-        # with self.__rw_locks["current_role"].w_locked():
-        #     self.__current_role = Role.FOLLOWER
+                    self.__current_leader_address
+                )
 
         self.__last_heartbeat_time = time.time()
 
