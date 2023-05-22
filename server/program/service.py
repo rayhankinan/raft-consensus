@@ -1123,9 +1123,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     if sum(vote_result) >= len(self.__current_known_address) // 2:
                         self.handle_election_win()
                     else:
-                        self.__current_role = snapshot_current_role
-                        self.__current_term = snapshot_current_term
-                        self.__storage.save_current_term(self.__current_term)
+                        self.__current_role = Role.FOLLOWER
             except:
                 self.__current_role = snapshot_current_role
                 self.__current_term = snapshot_current_term
