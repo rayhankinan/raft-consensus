@@ -72,3 +72,16 @@ class Storage(metaclass=StorageMeta):  # Ini Singleton
 
         with open(f"{self.__base_dir}/voted_for.pickle", "wb") as f:
             pickle.dump(voted_for, f)
+
+    def get_current_leader_address(self) -> Address:
+        try:
+            with open(f"{self.__base_dir}/current_leader_address.pickle", "rb") as f:
+                return pickle.load(f)
+        except FileNotFoundError:
+            return self.__config.get("LEADER_ADDRESS")
+
+    def save_current_leader_address(self, current_leader_address: Address) -> None:
+        os.makedirs(self.__base_dir, exist_ok=True)
+
+        with open(f"{self.__base_dir}/current_leader_address.pickle", "wb") as f:
+            pickle.dump(current_leader_address, f)
