@@ -963,29 +963,19 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__current_known_address = snapshot_current_known_address
                 raise RuntimeError("Failed to update next index")
 
-    # Heartbeat
+    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def check_timeout(self):
-        # wait 1 second
-        # time.sleep(1)
-        # while self.__current_role == Role.FOLLOWER :
-        #     current_time = time.time()
-        #     elapsed_time = current_time - self.__last_heartbeat_time
-
-        #     if(elapsed_time > self.__heartbeat_timeout) :
-        #         self.handle_timeout()
-
-        #     time.sleep(self.__heartbeat_timeout)
+        # Wait 1 second to initialize
         time.sleep(1)
+
         while True:
             if self.__current_role != Role.LEADER:
                 if (time.time() - self.__last_heartbeat_time) > self.__heartbeat_timeout:
                     self.handle_timeout()
+
             time.sleep(self.__heartbeat_timeout)
 
     def start_timer(self):
-        # print("Starting timer")
-        # sleep for 1 second
-        # time.sleep(1)
         timer_thread = threading.Thread(target=self.check_timeout)
         timer_thread.daemon = True
         timer_thread.start()
@@ -1050,6 +1040,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
             self.__last_heartbeat_time = time.time()
             self.__heartbeat_timeout = random.uniform(2.0, 3.0)
 
+    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def become_follower(self, address, term):
         # print("Becoming follower")
         # lock
@@ -1071,19 +1062,20 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
             self.__storage.save_current_term(self.__current_term)
             self.__storage.save_current_leader_address(
-                self.__current_leader_address)
+                self.__current_leader_address
+            )
 
         self.__last_heartbeat_time = time.time()
         self.__heartbeat_timeout = random.uniform(1.5, 3.0)
 
+    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def handle_election_win(self):
-        # time.sleep(1)
         with self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_leader_address"].w_locked():
-            # if(self.__current_role != Role.CANDIDATE) :
-            #     return
             print("Election won by node", self.__config.get("SERVER_ADDRESS"))
+
             self.__current_role = Role.LEADER
             self.__current_leader_address = self.__config.get("SERVER_ADDRESS")
+
             print("Current role: ", self.__current_role)
             print("Current term: ", self.__current_term)
 
@@ -1091,39 +1083,34 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 self.__current_leader_address
             )
 
-            # stop self timer and start heartbeat
-        # self.start_timer()
-        # self.start_heartbeat()
+        # RPC become follower to all known address
+        with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_leader_address"].r_locked():
+            known_follower_addresses = {
+                address: server_info
+                for address, server_info in self.__current_known_address.items()
+                if address != self.__config.get("SERVER_ADDRESS")
+            }
 
-            # rpc become follower to all known address
-        with self.__rw_locks["current_known_address"].r_locked():
-            for address in self.__current_known_address:
-                # skip if address is current server address
-                if (address == self.__config.get("SERVER_ADDRESS")):
-                    continue
-
-                print("Sending become follower to {}".format(address))
-                # send request vote to address
-                conn = create_connection(address)
-                try:
-                    asyncio.run(
+            asyncio.run(
+                wait_for_majority(
+                    *(
                         dynamically_call_procedure(
-                            conn,
+                            create_connection(address),
                             "become_follower",
                             serialize(self.__current_term),
                             serialize(self.__current_leader_address),
                         )
+                        for address, _ in known_follower_addresses.items()
                     )
-                except:
-                    print("Failed to send become follower to {}".format(address))
-                    continue
+                )
+            )
 
         # Heartbeat
         self.hearbeat_thread = threading.Thread(target=self.start_heartbeat)
         self.hearbeat_thread.daemon = True
         self.hearbeat_thread.start()
 
-    # TODO: Ini jangan lupa dilockk
+    # TODO: Ini jangan lupa ada lock dan rollback mechanism
     def request_vote(self, term, candidate_id, state_commit_index) -> bool:
         if term < self.__current_term or term <= self.__last_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
             print("Vote rejected for:", candidate_id)
@@ -1141,45 +1128,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         self.__heartbeat_timeout = random.uniform(2.0, 3.0)
 
         return True
-
-    # TODO: Ini jangan lupa ada rollback mechanism
-    def handle_heartbeat(self, term, adress):
-        # If received heartbeat and is leader, check is received term greater than current term
-        # If greater, become follower and update current term
-
-        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
-            if (term > self.__current_term):
-                print("Stepping down")
-
-                self.__current_term = term
-                self.__current_role = Role.FOLLOWER
-                self.__storage.save_current_term(self.__current_term)
-
-        # if address received is not current leader address, update current leader address
-        with self.__rw_locks["current_leader_address"].w_locked():
-            if (adress != self.__current_leader_address and term >= self.__current_term):
-                self.__current_leader_address = adress
-                self.__storage.save_current_leader_address(
-                    self.__current_leader_address)
-
-        # with self.__rw_locks["current_role"].w_locked():
-        #     self.__current_role = Role.FOLLOWER
-
-        self.__last_heartbeat_time = time.time()
-
-    # TODO: Ini jangan lupa dilockk
-    def hearbeat_loop(self):
-        # count = 0
-        while self.__current_role == Role.LEADER:
-            elapsed_time = time.time() - self.__last_heartbeat_time
-
-            # stop if conut more than 50
-            # if(count > 50) :
-            #     return
-            if (elapsed_time > 0.1):
-                self.send_heartbeat()
-                # count += 1
-                self.__last_heartbeat_time = time.time()
 
     def send_heartbeat(self):
         # loop through all known address
@@ -1222,6 +1170,31 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                     self.__current_role = snapshot_current_role
                     raise RuntimeError("Failed to update current role")
 
+    # TODO: Ini jangan lupa ada rollback mechanism
+    def handle_heartbeat(self, term, adress):
+        # If received heartbeat and is leader, check is received term greater than current term
+        # If greater, become follower and update current term
+
+        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked():
+            if (term > self.__current_term):
+                print("Stepping down")
+
+                self.__current_term = term
+                self.__storage.save_current_term(self.__current_term)
+                self.__current_role = Role.FOLLOWER
+
+        # if address received is not current leader address, update current leader address
+        with self.__rw_locks["current_leader_address"].w_locked():
+            if (adress != self.__current_leader_address and term >= self.__current_term):
+                self.__current_leader_address = adress
+                self.__storage.save_current_leader_address(
+                    self.__current_leader_address)
+
+        # with self.__rw_locks["current_role"].w_locked():
+        #     self.__current_role = Role.FOLLOWER
+
+        self.__last_heartbeat_time = time.time()
+
 
 @rpyc.service
 class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
@@ -1235,7 +1208,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def on_disconnect(self, conn: rpyc.Connection) -> None:
         conn.close()
 
-    # Procedure
     @rpyc.exposed
     def add_server(self, raw_follower_address: bytes) -> None:
         follower_addresses: Tuple[Address, ...] = deserialize(
@@ -1244,7 +1216,6 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
 
         self.__node.add_server(follower_addresses)
 
-    # Procedure
     @rpyc.exposed
     def append_membership_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_membership_logs: bytes, raw_leader_commit_index: bytes) -> None:
         term: int = deserialize(raw_term)
@@ -1262,23 +1233,19 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             leader_commit_index,
         )
 
-    # Procedure
     @rpyc.exposed
     def commit_membership_logs(self) -> None:
         self.__node.commit_membership_logs()
 
-    # Procedure
     @rpyc.exposed
     def enqueue(self, raw_message: bytes) -> None:
         message: Tuple[str, ...] = deserialize(raw_message)
         self.__node.add_state("ENQUEUE", message)
 
-    # Procedure
     @rpyc.exposed
     def dequeue(self) -> None:
         self.__node.add_state("DEQUEUE",  ())
 
-    # Procedure
     @rpyc.exposed
     def append_state_logs(self, raw_term: bytes, raw_prev_log_index: bytes, raw_prev_log_term: bytes, raw_new_state_logs: bytes, raw_leader_commit_index: bytes) -> None:
         term: int = deserialize(raw_term)
@@ -1310,10 +1277,30 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
         match_index: int = deserialize(raw_match_index)
         self.__node.update_next_match(address, next_index, match_index)
 
-    # Procedure
     @rpyc.exposed
     def commit_state_logs(self) -> None:
         self.__node.commit_state_logs()
+
+    @rpyc.exposed
+    def handle_heartbeat(self, raw_term: bytes, raw_address: bytes) -> None:
+        term: int = deserialize(raw_term)
+        address: Address = deserialize(raw_address)
+        self.__node.handle_heartbeat(term, address)
+
+    @rpyc.exposed
+    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes, raw_state_commit_index: bytes) -> bytes:
+        term: int = deserialize(raw_term)
+        candidate_address: Address = deserialize(raw_candidate_address)
+        state_commit_index: int = deserialize(raw_state_commit_index)
+
+        return serialize(self.__node.request_vote(term, candidate_address, state_commit_index))
+
+    @rpyc.exposed
+    def become_follower(self, raw_term: bytes, raw_leader_address: bytes) -> None:
+        term: int = deserialize(raw_term)
+        leader_address: Address = deserialize(raw_leader_address)
+
+        self.__node.become_follower(leader_address, term)
 
     # Procedure: Test untuk client
     @rpyc.exposed
@@ -1325,7 +1312,7 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
     def print_known_address(self) -> None:
         print("Known Address:", self.__node.get_current_known_address())
 
-        # Procedure: Test untuk client
+    # Procedure: Test untuk client
     @rpyc.exposed
     def print_node(self) -> None:
         print("current known address", self.__node.get_current_known_address())
@@ -1350,24 +1337,3 @@ class ServerService(rpyc.VoidService):  # Stateful: Tidak menggunakan singleton
             self.__node.get_state_last_applied()
         )
         print("Current State Log:", self.__node.get_state_log())
-
-    @rpyc.exposed
-    def handle_heartbeat(self, raw_term: bytes, raw_address) -> None:
-        term: int = deserialize(raw_term)
-        address: Address = deserialize(raw_address)
-        self.__node.handle_heartbeat(term, address)
-
-    @rpyc.exposed
-    def request_vote(self, raw_term: bytes, raw_candidate_address: bytes, raw_state_commit_index: bytes) -> bool:
-        term: int = deserialize(raw_term)
-        candidate_address: Address = deserialize(raw_candidate_address)
-        state_commit_index: int = deserialize(raw_state_commit_index)
-
-        return self.__node.request_vote(term, candidate_address, state_commit_index)
-
-    @rpyc.exposed
-    def become_follower(self, raw_term: bytes, raw_leader_address: bytes) -> None:
-        term: int = deserialize(raw_term)
-        leader_address: Address = deserialize(raw_leader_address)
-
-        self.__node.become_follower(leader_address, term)
