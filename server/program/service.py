@@ -1112,16 +1112,16 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
         # self.start_timer()
 
     def hearbeat_loop(self):
-        count = 0
+        #count = 0
         while self.__current_role == Role.LEADER:
             elapsed_time = time.time() - self.__last_heartbeat_time
 
             #stop if conut more than 50
-            if(count > 50) :
-                return
+            # if(count > 50) :
+            #     return
             if(elapsed_time > 0.1) :
                 self.send_heartbeat()
-                count += 1
+                #count += 1
                 self.__last_heartbeat_time = time.time()
 
     def send_heartbeat(self):
