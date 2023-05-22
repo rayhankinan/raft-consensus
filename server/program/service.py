@@ -831,7 +831,6 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Term is too old")
 
             with self.__rw_locks["state_log"].r_locked():
-                print("Prev Log Index", prev_log_index)
                 if prev_log_index >= 0 and self.__state_log[prev_log_index].term != prev_log_term:
                     conn = create_connection(self.__current_leader_address)
 
@@ -987,7 +986,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def decrease_next_index(self, address: Address) -> None:
         print(f"Decrease next index: {address}")
 
-        with self.__rw_locks["current_known_address"].w_locked():
+        with self.__rw_locks["current_known_address"].r_to_w_locked():
             snapshot_current_known_address = copy.deepcopy(
                 self.__current_known_address
             )
@@ -1030,7 +1029,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                 raise RuntimeError("Failed to decrease next index")
 
     def update_next_match(self, address: Address, next_index: int, match_index: int) -> None:
-        with self.__rw_locks["current_known_address"].w_locked():
+        with self.__rw_locks["current_known_address"].r_to_w_locked():
             snapshot_current_known_address = copy.deepcopy(
                 self.__current_known_address
             )

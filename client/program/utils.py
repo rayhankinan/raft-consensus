@@ -18,31 +18,39 @@ async def dynamically_call_procedure(conn: rpyc.Connection, func_name: str, *arg
 
 
 async def wait_for_all(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
-    return await asyncio.gather(*args)
+    try:
+        return await asyncio.gather(*args)
+    except:
+        # Jika ada timeout, maka return list kosong
+        return []
 
 
-async def wait_for_majority(*args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
-    length = len(args)
-    threshold = length // 2 + 1
-
+async def wait_for_x(x: int, *args: Coroutine[Any, Any, Optional[bytes]]) -> list[Optional[bytes]]:
     completed = 0
     results: list[Optional[bytes]] = []
 
-    # Membuat list of task
-    tasks = [asyncio.create_task(arg) for arg in args]
+    try:
+        threshold = x
 
-    while completed < threshold:
-        # Menunggu salah satu task selesai
-        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        # Membuat list of task
+        tasks = [asyncio.create_task(arg) for arg in args]
 
-        for task in done:
-            results.append(task.result())
-            completed += 1
+        while completed < threshold:
+            # Menunggu salah satu task selesai
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
-        # Hilangkan task yang sudah selesai
-        tasks = [task for task in tasks if not task.done()]
+            for task in done:
+                results.append(task.result())
+                completed += 1
 
-    return results
+            # Hilangkan task yang sudah selesai
+            tasks = [task for task in tasks if not task.done()]
+
+        return results
+
+    except:
+        # Jika ada timeout, maka return list yang sudah terkumpul
+        return results
 
 
 def serialize(value: Any) -> bytes:
