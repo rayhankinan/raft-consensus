@@ -11,6 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ./server ./
 
-CMD [ "tc", "qdisc", "add", "dev", "lo", "root", "netem", "delay", "100ms", "10ms", "25%", "loss", "10%", "25%", "corrupt", "10%", "25%", "duplicate", "10%", "25%" && "python3", "-u", "./main.py" ]
+CMD [ "tc", "qdisc", "add", "dev", "lo", "root", "netem", "delay", "1000ms", "50ms", "loss", "5%", "corrupt", "5%", "duplicate", "2%", "5%", "reorder", "8%" && "python3", "-u", "./main.py" ]
 
 EXPOSE 8080

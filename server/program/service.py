@@ -77,13 +77,12 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     # Heartbeat: TODO Tambahkan lock
     __heartbeat_interval: float = 1.0
-    __heartbeat_timeout: float = random.uniform(4.0, 5.0)
+    __heartbeat_timeout: float = random.uniform(3.0, 4.0)
     __last_heartbeat_time = time.time()
 
     # Threads: TODO Tambahkan lock
     __heartbeat_thread: threading.Thread
     __timeout_thread: threading.Thread
-    __election_thread: threading.Thread
 
     # Public Method (Read): Testing untuk client
     def get_current_known_address(self) -> dict[Address, ServerInfo]:
@@ -241,14 +240,15 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                         self.__current_role = snapshot_current_role
                         raise RuntimeError("Failed to initialize")
 
-                # heartbeat
+                # Heartbeat
                 self.__heartbeat_thread = threading.Thread(
                     target=self.start_heartbeat)
                 self.__heartbeat_thread.daemon = True
                 self.__heartbeat_thread.start()
 
+            # TODO: Ini jangan lupa ada lock
             self.__last_heartbeat_time = time.time()
-            self.__heartbeat_timeout = random.uniform(4.0, 5.0)
+            self.__heartbeat_timeout = random.uniform(3.0, 4.0)
             self.__timeout_thread = threading.Thread(target=self.check_timeout)
             self.__timeout_thread.daemon = True
             self.__timeout_thread.start()
@@ -884,7 +884,8 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
                                         conn,
                                         "update_next_match",
                                         serialize(self.__config.get(
-                                            "SERVER_ADDRESS")),
+                                            "SERVER_ADDRESS")
+                                        ),
                                         serialize(final_length),
                                         serialize(final_length - 1)
                                     )
@@ -1065,20 +1066,18 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
     def check_timeout(self) -> None:
         time.sleep(1)
 
-        current_role: Role
-        with self.__rw_locks["current_role"].r_locked():
-            current_role = self.__current_role
+        # NOTE: Deleted for improving busy waiting
+        current_role = self.__current_role
 
         while True:
-            with self.__rw_locks["current_role"].r_locked():
-                current_role = self.__current_role
-
             if current_role == Role.FOLLOWER and time.time() - self.__last_heartbeat_time > self.__heartbeat_timeout:  # TODO: Ini jangan lupa ada lock
                 print("Heartbeat Timeout")
                 self.start_leader_election()
 
             # TODO: Ini jangan lupa ada lock
             time.sleep(self.__heartbeat_timeout)
+
+            current_role = self.__current_role
 
     def start_leader_election(self):
         print("Starting leader election for node")
@@ -1223,7 +1222,7 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(4.0, 5.0)
+        self.__heartbeat_timeout = random.uniform(3.0, 4.0)
 
     def become_follower(self, address, term):
         print("Become follower")
@@ -1267,44 +1266,43 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()
-        self.__heartbeat_timeout = random.uniform(4.0, 5.0)
+        self.__heartbeat_timeout = random.uniform(3.0, 4.0)
 
     def request_vote(self, term: int, candidate_address: Address, state_commit_index: int) -> bool:
-        with self.__rw_locks["current_term"].r_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
-            if term < self.__current_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
-                print("Vote rejected for:", candidate_address)
-                return False
+        with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["voted_for"].w_locked(), self.__rw_locks["current_role"].r_locked(), self.__rw_locks["state_commit_index"].r_locked():
+            snapshot_current_term = copy.deepcopy(
+                self.__current_term
+            )
+            snapshot_voted_for = copy.deepcopy(
+                self.__voted_for
+            )
 
-            with self.__rw_locks["current_term"].r_to_w_locked(), self.__rw_locks["voted_for"].w_locked():
-                snapshot_current_term = copy.deepcopy(
-                    self.__current_term
-                )
-                snapshot_voted_for = copy.deepcopy(
-                    self.__voted_for
-                )
+            try:
+                if term < self.__current_term or self.__current_role == Role.CANDIDATE or state_commit_index < self.__state_commit_index:
+                    print("Vote rejected for:", candidate_address)
+                    return False
 
-                try:
-                    self.__current_term = term
-                    self.__storage.save_current_term(self.__current_term)
+                self.__current_term = term
+                self.__storage.save_current_term(self.__current_term)
 
-                    self.__voted_for = candidate_address
-                    self.__storage.save_voted_for(self.__voted_for)
+                self.__voted_for = candidate_address
+                self.__storage.save_voted_for(self.__voted_for)
 
-                    print("Current term:", self.__current_term)
-                    print("Voted for:", self.__voted_for)
+                print("Current term:", self.__current_term)
+                print("Voted for:", self.__voted_for)
 
-                    # TODO: Ini jangan lupa ada lock dan rollback mechanism
-                    self.__last_heartbeat_time = time.time()
-                    self.__heartbeat_timeout = random.uniform(4.0, 5.0)
+                # TODO: Ini jangan lupa ada lock dan rollback mechanism
+                self.__last_heartbeat_time = time.time()
+                self.__heartbeat_timeout = random.uniform(3.0, 4.0)
 
-                    return True
+                return True
 
-                except:
-                    self.__current_term = snapshot_current_term
-                    self.__voted_for = snapshot_voted_for
-                    self.__storage.save_current_term(self.__current_term)
-                    self.__storage.save_voted_for(self.__voted_for)
-                    raise RuntimeError("Failed to vote")
+            except:
+                self.__current_term = snapshot_current_term
+                self.__voted_for = snapshot_voted_for
+                self.__storage.save_current_term(self.__current_term)
+                self.__storage.save_voted_for(self.__voted_for)
+                raise RuntimeError("Failed to vote")
 
     def send_heartbeat(self):
         with self.__rw_locks["current_known_address"].r_locked(), self.__rw_locks["current_term"].r_locked():
@@ -1339,64 +1337,55 @@ class RaftNode(metaclass=RaftNodeMeta):  # Ini Singleton
 
     def start_heartbeat(self):
         current_role: Role
-        with self.__rw_locks["current_role"].r_locked():
-            current_role = self.__current_role
+
+        # NOTE: Deleted for improving busy waiting
+        current_role = self.__current_role
 
         while current_role == Role.LEADER:
             self.send_heartbeat()
             time.sleep(self.__heartbeat_interval)
 
-            with self.__rw_locks["current_role"].r_locked():
-                current_role = self.__current_role
+            current_role = self.__current_role
 
     def handle_heartbeat(self, term: int, address: Address):
         # If received heartbeat and is leader, check is received term greater than current term
         # If greater, become follower and update current term
 
-        with self.__rw_locks["current_term"].r_locked():
-            if term > self.__current_term:
-                print("Stepping down")
+        # NOTE: Deleted for improving busy waiting
+        if term > self.__current_term:
+            print("Stepping down")
 
-                with self.__rw_locks["current_term"].r_to_w_locked(), self.__rw_locks["current_role"].w_locked():
-                    snapshot_current_term = copy.deepcopy(
-                        self.__current_term
+            with self.__rw_locks["current_term"].w_locked(), self.__rw_locks["current_role"].w_locked(), self.__rw_locks["current_leader_address"].w_locked():
+                snapshot_current_term = copy.deepcopy(
+                    self.__current_term
+                )
+                snapshot_current_role = copy.deepcopy(
+                    self.__current_role
+                )
+                snapshot_current_leader_address = copy.deepcopy(
+                    self.__current_leader_address
+                )
+
+                try:
+                    self.__current_term = term
+                    self.__storage.save_current_term(self.__current_term)
+
+                    self.__current_leader_address = address
+                    self.__storage.save_current_leader_address(
+                        self.__current_leader_address
                     )
-                    snapshot_current_role = copy.deepcopy(
-                        self.__current_role
+
+                    self.__current_role = Role.FOLLOWER
+
+                except:
+                    self.__current_term = snapshot_current_term
+                    self.__current_role = snapshot_current_role
+                    self.__current_leader_address = snapshot_current_leader_address
+                    self.__storage.save_current_term(self.__current_term)
+                    self.__storage.save_current_leader_address(
+                        self.__current_leader_address
                     )
-
-                    try:
-                        self.__current_term = term
-                        self.__storage.save_current_term(self.__current_term)
-                        self.__current_role = Role.FOLLOWER
-
-                        with self.__rw_locks["current_leader_address"].r_locked():
-                            if address != self.__current_leader_address and term >= self.__current_term:
-
-                                with self.__rw_locks["current_leader_address"].r_to_w_locked():
-                                    snapshot_current_leader_address = copy.deepcopy(
-                                        self.__current_leader_address
-                                    )
-
-                                    try:
-                                        self.__current_leader_address = address
-                                        self.__storage.save_current_leader_address(
-                                            self.__current_leader_address
-                                        )
-                                    except:
-                                        self.__current_leader_address = snapshot_current_leader_address
-                                        self.__storage.save_current_leader_address(
-                                            self.__current_leader_address
-                                        )
-                                        raise RuntimeError(
-                                            "Failed to update current leader address"
-                                        )
-
-                    except:
-                        self.__current_term = snapshot_current_term
-                        self.__current_role = snapshot_current_role
-                        self.__storage.save_current_term(self.__current_term)
-                        raise RuntimeError("Failed to update current term")
+                    raise RuntimeError("Failed to update current term")
 
         # TODO: Ini jangan lupa ada lock dan rollback mechanism
         self.__last_heartbeat_time = time.time()

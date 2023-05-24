@@ -1,6 +1,6 @@
 import rpyc
 import asyncio
-from program import ClientService, dynamically_call_procedure, serialize
+from program import ClientService, dynamically_call_procedure, serialize, wait_for_all
 
 
 if __name__ == "__main__":
@@ -37,6 +37,21 @@ if __name__ == "__main__":
 
     asyncio.run(
         dynamically_call_procedure(
-            conn_4, "enqueue", serialize(("Testing!", ))
-        ),
+            conn_1,
+            "enqueue",
+            serialize(
+                ("a", )
+            )
+        )
+    )
+
+    asyncio.run(
+        wait_for_all(
+            dynamically_call_procedure(conn_0, "print_node"),
+            dynamically_call_procedure(conn_1, "print_node"),
+            dynamically_call_procedure(conn_2, "print_node"),
+            dynamically_call_procedure(conn_3, "print_node"),
+            dynamically_call_procedure(conn_4, "print_node"),
+            dynamically_call_procedure(conn_5, "print_node"),
+        )
     )
